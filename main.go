@@ -13,7 +13,7 @@ func eventReciever(ec chan MpvEvent) {
 }
 
 func main() {
-	dc, _, e, err := SetupDaemon()
+	dc, q, e, err := SetupDaemon()
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
@@ -23,13 +23,21 @@ func main() {
 		log.Fatal(err)
 	}
 	a := true
+	i := 5
 	p.RemoveNonAudioFiles()
 	for {
+		if i == 0 {
+			q <- true
+			<-q
+			break
+		}
 		if a {
 			fmt.Println(p.Prev(false))
 			a = false
 		}
 		fmt.Println(p.Next(true))
-		time.Sleep(time.Second * 10)
+		time.Sleep(time.Second * 3)
+		i--
 	}
+	fmt.Println("done.")
 }

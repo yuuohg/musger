@@ -92,13 +92,13 @@ func InitDaemon(client *MpvClient) (chan MpvEvent, MpvDaemon) {
 	}
 }
 
-func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan int) {
+func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan bool) {
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		select {
 		case _ = <-qc:
 			{
-				qc <- 0
+				qc <- true
 				break
 			}
 		default:
@@ -128,7 +128,7 @@ func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan int) {
 		}
 	}
 	_ = scanner.Err()
-	qc <- 0
+	qc <- true
 }
 
 func generateUniqueRID(md *MpvDaemon) int64 {
@@ -152,7 +152,7 @@ func waitForCommands(
 	sendCommands chan string,
 	recieveChan chan chan MpvResponse,
 	md *MpvDaemon,
-	qc chan int,
+	qc chan bool,
 ) {
 	for {
 		select {
@@ -180,7 +180,7 @@ func waitForCommands(
 			}
 		case _ = <-qc:
 			{
-				qc <- 0
+				qc <- true
 				break
 			}
 		}
@@ -190,22 +190,22 @@ func waitForCommands(
 func (md *MpvDaemon) RunDaemon(
 	sendCommands chan string,
 	recieveChan chan chan MpvResponse,
-	quit chan int,
+	quit chan bool,
 ) {
 	var (
-		mpvRepQC         = make(chan int, 2)
-		WaitOnCommandsQC = make(chan int, 2)
+		mpvRepQC         = make(chan bool, 2)
+		WaitOnCommandsQC = make(chan bool, 2)
 	)
 	go mpvReplies(md, md.client.conn, mpvRepQC)
 	go waitForCommands(sendCommands, recieveChan, md, WaitOnCommandsQC)
 	<-quit
-	mpvRepQC <- 1
-	WaitOnCommandsQC <- 1
+	mpvRepQC <- true
+	WaitOnCommandsQC <- true
 	<-mpvRepQC
 	<-WaitOnCommandsQC
 	md.client.Close()
 	md.closed = true
-	quit <- 0
+	quit <- true
 }
 
 func (mpvc *MpvClient) Close() error {
@@ -276,7 +276,7 @@ func InitServer(path string) (*MpvClient, error) {
 	return &MpvClient{path, conn, cmd}, nil
 }
 
-func SetupDaemon() (dc DaemonChannel, quitChan chan int, eventChan chan MpvEvent, err error) {
+func SetupDaemon() (dc DaemonChannel, quitChan chan bool, eventChan chan MpvEvent, err error) {
 	mpvClient, err := InitServer(GeneratePath())
 	if err != nil {
 		return DaemonChannel{}, nil, nil, fmt.Errorf(
@@ -287,7 +287,7 @@ func SetupDaemon() (dc DaemonChannel, quitChan chan int, eventChan chan MpvEvent
 	eventChan, daemon := InitDaemon(mpvClient)
 	commandChan := make(chan string, 10)
 	responseChan := make(chan chan MpvResponse, 10)
-	quitChan = make(chan int)
+	quitChan = make(chan bool)
 	dc = DaemonChannel{Send: commandChan, Receive: responseChan}
 	go daemon.RunDaemon(commandChan, responseChan, quitChan)
 	return
