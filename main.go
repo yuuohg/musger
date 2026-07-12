@@ -13,16 +13,22 @@ func eventReciever(ec chan MpvEvent) {
 }
 
 func main() {
-	dc, quitChan, e, err := SetupDaemon()
+	dc, _, e, err := SetupDaemon()
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 	go eventReciever(e)
-	resp := dc.PlayFile("music.opus")
-	fmt.Printf("resp: %+v\n", resp)
-	time.Sleep(time.Second * 259)
-	quitChan <- 1
-	fmt.Printf("quitChan <- 1\n")
-	<-quitChan
-	fmt.Printf("<-quitChan\n")
+	p, err := NewAD("audio", &dc)
+	if err != nil {
+		log.Fatal(err)
+	}
+	a := true
+	for {
+		if a {
+			p.Prev(false)
+			a = false
+		}
+		p.Next(true)
+		time.Sleep(time.Second * 2)
+	}
 }
