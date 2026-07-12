@@ -23,12 +23,13 @@ func main() {
 		log.Fatal(err)
 	}
 	a := true
+	p.RemoveNonAudioFiles()
 	for {
 		if a {
-			p.Prev(false)
+			fmt.Println(p.Prev(false))
 			a = false
 		}
-		p.Next(true)
-		time.Sleep(time.Second * 2)
+		fmt.Println(p.Next(true))
+		time.Sleep(time.Second * 10)
 	}
 }

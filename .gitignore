@@ -3,3 +3,5 @@ musger
 *.sh
 audio
 music
+core
+*.txt

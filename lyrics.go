@@ -117,7 +117,13 @@ func LrctextToLrc(text string) (Lrc, error) {
 		if err != nil {
 			return Lrc{}, fmt.Errorf("%w, '%v'", err, nextLine)
 		}
-		lrc.lyric = append(lrc.lyric, Lyric{compareNum{currLyricTimestamp, nextLyricTimestamp}, line[11:]})
+		lrc.lyric = append(
+			lrc.lyric,
+			Lyric{
+				compareNum{currLyricTimestamp, nextLyricTimestamp},
+				line[11:],
+			},
+		)
 	}
 	return lrc, nil
 }
@@ -165,8 +171,17 @@ func timestampToMs(timestamp string) (uint, error) {
 	if len(timestamp) != 10 {
 		return 0, TimestampError{"invalid length"}
 	}
-	if [4]byte{timestamp[0], timestamp[9], timestamp[3], timestamp[6]} !=
-		[4]byte{'[', ']', ':', '.'} {
+	if [4]byte{
+		timestamp[0],
+		timestamp[9],
+		timestamp[3],
+		timestamp[6],
+	} != [4]byte{
+		'[',
+		']',
+		':',
+		'.',
+	} {
 		return 0, TimestampError{"invalid seperators"}
 	}
 	if !(IsDigit(timestamp[1]) && IsDigit(timestamp[2]) &&

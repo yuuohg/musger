@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -16,6 +17,12 @@ func remove[T any](slice []T, s int) []T {
 	if len(slice) == 1 {
 		return make([]T, 0)
 	}
+	if s == len(slice)-1 {
+		return slice[:len(slice)-1]
+	}
+	if s == 0 {
+		return slice[1:]
+	}
 	return append(slice[:s], slice[s+1:]...)
 }
 
@@ -25,33 +32,30 @@ type Playlist struct {
 	currSong int
 }
 
-func (p *Playlist) RemoveEmptyStrings() {
-	for idx, file := range p.Files {
-		if file == "" {
-			p.Files = remove(p.Files, idx)
-		}
-	}
-}
-
 func (p *Playlist) RemoveNonAudioFiles() error {
-	p.RemoveEmptyStrings()
-	f := strings.Join(p.Files, " ")
-	r, e := exec.Command("file", "--mime-type", "-b", f).Output()
+	args := append(make([]string, 0, 2), "--mime-type", "-b")
+	args = append(args, p.Files...)
+	r, e := exec.Command("file", args...).Output()
 	if e != nil {
 		return e
 	}
 	types := slices.Collect(strings.Lines(string(r)))
-	for i, v := range types {
-		if strings.Contains(v, "audio") {
+	removal := make([]int, 0)
+	for idx, t := range types {
+		if strings.Contains(t, "audio") {
 			continue
 		}
-		p.Files = remove(p.Files, i)
+		removal = append(removal, idx)
+	}
+	i := 0
+	for _, idx := range removal {
+		p.Files = remove(p.Files, idx-i)
+		i++
 	}
 	return nil
 }
 
 func (p *Playlist) Next(wrap bool) (MpvResponse, error) {
-	p.RemoveNonAudioFiles()
 	if len(p.Files) == 0 {
 		return MpvResponse{}, fmt.Errorf("Empty playlist")
 	}
@@ -68,11 +72,10 @@ func (p *Playlist) Next(wrap bool) (MpvResponse, error) {
 }
 
 func (p *Playlist) Prev(wrap bool) (MpvResponse, error) {
-	p.RemoveNonAudioFiles()
 	if len(p.Files) == 0 {
 		return MpvResponse{}, fmt.Errorf("Empty playlist")
 	}
-	p.currSong++
+	p.currSong--
 	if p.currSong != -1 {
 		return p.dc.PlayFile(p.Files[p.currSong]), nil
 	}
@@ -84,12 +87,56 @@ func (p *Playlist) Prev(wrap bool) (MpvResponse, error) {
 	return p.dc.PlayFile(p.Files[p.currSong]), nil
 }
 
+func (p *Playlist) ExpandToAbsPath() error {
+	for i, f := range p.Files {
+		abs, err := filepath.Abs(f)
+		if err != nil {
+			return err
+		}
+		p.Files[i] = abs
+	}
+	return nil
+}
+
 func (p *Playlist) Save(file string) error {
 	f, err := os.Create(file)
 	if err != nil {
 		return err
 	}
+	err = p.ExpandToAbsPath()
+	if err != nil {
+		return err
+	}
 	f.WriteString(strings.Join(p.Files, "\n"))
+	return nil
+}
+
+func (p *Playlist) Load(file string) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	s, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if s.IsDir() {
+		return fmt.Errorf("oh, come on")
+	}
+	buf := make([]byte, s.Size())
+	_, err = f.Read(buf)
+	if err != nil {
+		return err
+	}
+	audioFiles := strings.Lines(string(buf))
+	for file := range audioFiles {
+		file = strings.TrimSpace(file)
+		if file == "" {
+			continue
+		}
+		p.Files = append(p.Files, file)
+	}
+	p.RemoveNonAudioFiles()
 	return nil
 }
 
@@ -116,23 +163,9 @@ func NewAD(dir string, dc *DaemonChannel) (AudioDir, error) {
 		name := f.Name()
 		files = append(files, name)
 	}
-	comm := make([]string, 0)
-	comm = append(comm, "--mime-type", "-b")
-	comm = append(comm, files...)
-	r, e := exec.Command("file", comm...).Output()
-	if e != nil {
-		return AudioDir{}, e
-	}
-	types := slices.Collect(strings.Lines(string(r)))
-	m := make(map[string]string)
-	for i := 0; i < len(files); i++ {
-		m[files[i]] = types[i]
-	}
-	for k, v := range m {
-		if strings.Contains(v, "audio") {
-			ad.Files = append(ad.Files, dir+"/"+k)
-		}
-	}
+	ad.Files = files
+	ad.ExpandToAbsPath()
+	ad.RemoveNonAudioFiles()
 	err = os.Chdir("..")
 	if err != nil {
 		return AudioDir{}, err

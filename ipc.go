@@ -85,10 +85,14 @@ func (dc *DaemonChannel) PlayFile(file string) MpvResponse {
 func InitDaemon(client *MpvClient) (chan MpvEvent, MpvDaemon) {
 	eventc := make(chan MpvEvent, 10)
 	channels := make(map[int64]chan MpvResponse)
-	return eventc, MpvDaemon{client: client, eventChan: eventc, channels: channels}
+	return eventc, MpvDaemon{
+		client:    client,
+		eventChan: eventc,
+		channels:  channels,
+	}
 }
 
-func mpvReplies(ch chan string, conn net.Conn, qc chan int) {
+func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan int) {
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		select {
@@ -98,8 +102,29 @@ func mpvReplies(ch chan string, conn net.Conn, qc chan int) {
 				break
 			}
 		default:
-			mpvReply := scanner.Text()
-			ch <- mpvReply
+			{
+				reply := scanner.Text()
+				var response MpvResponse
+				bReply := []byte(reply)
+				json.Unmarshal(bReply, &response)
+				if response.Event != "" {
+					var event MpvEvent
+					json.Unmarshal(bReply, &event)
+					md.eventChan <- event
+				}
+				if response.RequestID != 0 {
+					md.m.Lock()
+					ch, inChan := md.channels[response.RequestID]
+					if !inChan {
+						md.m.Unlock()
+						continue
+					}
+					ch <- response
+					close(ch)
+					delete(md.channels, response.RequestID)
+					md.m.Unlock()
+				}
+			}
 		}
 	}
 	_ = scanner.Err()
@@ -123,7 +148,12 @@ func cleanUpString(s string) string {
 	return noSpaces[:len(noSpaces)-1]
 }
 
-func waitForCommands(sendCommands chan string, recieveChan chan chan MpvResponse, md *MpvDaemon, qc chan int) {
+func waitForCommands(
+	sendCommands chan string,
+	recieveChan chan chan MpvResponse,
+	md *MpvDaemon,
+	qc chan int,
+) {
 	for {
 		select {
 		case command := <-sendCommands:
@@ -133,7 +163,11 @@ func waitForCommands(sendCommands chan string, recieveChan chan chan MpvResponse
 				}
 				md.m.Lock()
 				requestID := generateUniqueRID(md)
-				f := fmt.Sprintf(`%v,"request_id":%v}`, cleanUpString(command), requestID)
+				f := fmt.Sprintf(
+					`%v,"request_id":%v}`,
+					cleanUpString(command),
+					requestID,
+				)
 				_, err := fmt.Fprintln(md.client.conn, f)
 				if err != nil {
 					md.m.Unlock()
@@ -153,58 +187,22 @@ func waitForCommands(sendCommands chan string, recieveChan chan chan MpvResponse
 	}
 }
 
-func processReplies(mpvr chan string, md *MpvDaemon, qc chan int) {
-	for {
-		select {
-		case reply := <-mpvr:
-			{
-				var response MpvResponse
-				bReply := []byte(reply)
-				json.Unmarshal(bReply, &response)
-				if response.Event != "" {
-					var event MpvEvent
-					json.Unmarshal(bReply, &event)
-					md.eventChan <- event
-				}
-				if response.RequestID != 0 {
-					md.m.Lock()
-					ch, inChan := md.channels[response.RequestID]
-					if !inChan {
-						md.m.Unlock()
-						continue
-					}
-					ch <- response
-					close(ch)
-					delete(md.channels, response.RequestID)
-					md.m.Unlock()
-				}
-			}
-		case _ = <-qc:
-			{
-				qc <- 0
-				break
-			}
-		}
-	}
-}
-
-func (md *MpvDaemon) RunDaemon(sendCommands chan string, recieveChan chan chan MpvResponse, quit chan int) {
+func (md *MpvDaemon) RunDaemon(
+	sendCommands chan string,
+	recieveChan chan chan MpvResponse,
+	quit chan int,
+) {
 	var (
-		mpvr             = make(chan string)
 		mpvRepQC         = make(chan int, 2)
-		processRepQC     = make(chan int, 2)
 		WaitOnCommandsQC = make(chan int, 2)
 	)
-	go mpvReplies(mpvr, md.client.conn, mpvRepQC)
+	go mpvReplies(md, md.client.conn, mpvRepQC)
 	go waitForCommands(sendCommands, recieveChan, md, WaitOnCommandsQC)
-	go processReplies(mpvr, md, processRepQC)
 	<-quit
 	mpvRepQC <- 1
 	WaitOnCommandsQC <- 1
-	processRepQC <- 1
 	<-mpvRepQC
 	<-WaitOnCommandsQC
-	<-processRepQC
 	md.client.Close()
 	md.closed = true
 	quit <- 0
@@ -254,6 +252,7 @@ func InitServer(path string) (*MpvClient, error) {
 		"--osc=no",
 		"--osd-level=0",
 		"--no-input-default-bindings",
+		"--load-scripts=no",
 		ipcServerOption,
 	)
 	err = cmd.Start()
@@ -280,7 +279,10 @@ func InitServer(path string) (*MpvClient, error) {
 func SetupDaemon() (dc DaemonChannel, quitChan chan int, eventChan chan MpvEvent, err error) {
 	mpvClient, err := InitServer(GeneratePath())
 	if err != nil {
-		return DaemonChannel{}, nil, nil, fmt.Errorf("Could not start mpv: %w", err)
+		return DaemonChannel{}, nil, nil, fmt.Errorf(
+			"Could not start mpv: %w",
+			err,
+		)
 	}
 	eventChan, daemon := InitDaemon(mpvClient)
 	commandChan := make(chan string, 10)
@@ -291,7 +293,9 @@ func SetupDaemon() (dc DaemonChannel, quitChan chan int, eventChan chan MpvEvent
 	return
 }
 
-var characters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+var characters = []rune(
+	"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
+)
 
 func randSeq(n int) string {
 	b := make([]rune, n)
