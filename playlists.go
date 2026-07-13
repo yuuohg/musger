@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/gabriel-vasile/mimetype"
 )
 
 func remove[T any](slice []T, s int) []T {
@@ -33,24 +35,18 @@ type Playlist struct {
 }
 
 func (p *Playlist) RemoveNonAudioFiles() error {
-	args := append(make([]string, 0, 2), "--mime-type", "-b")
-	args = append(args, p.Files...)
-	r, e := exec.Command("file", args...).Output()
-	if e != nil {
-		return e
+	if len(p.Files) == 0 {
+		return nil
 	}
-	types := slices.Collect(strings.Lines(string(r)))
 	removal := make([]int, 0)
-	for idx, t := range types {
-		if strings.Contains(t, "audio") {
+	for idx, filename := range p.Files {
+		if isAudio(filename) {
 			continue
 		}
 		removal = append(removal, idx)
 	}
-	i := 0
-	for _, idx := range removal {
+	for i, idx := range removal {
 		p.Files = remove(p.Files, idx-i)
-		i++
 	}
 	return nil
 }
@@ -140,6 +136,18 @@ func (p *Playlist) Load(file string) error {
 	return nil
 }
 
+// moves to destidx+1
+func (p *Playlist) Moveto(idx int, destidx int) error {
+	if idx >= len(p.Files) || destidx >= len(p.Files) || idx < 0 ||
+		destidx < 0 {
+		return fmt.Errorf("out of range")
+	}
+	s := p.Files[idx]
+	p.Files = remove(p.Files, idx)
+	p.Files = slices.Insert(p.Files, int(destidx), s)
+	return nil
+}
+
 type AudioDir struct {
 	Playlist
 	dir string
@@ -164,8 +172,8 @@ func NewAD(dir string, dc *DaemonChannel) (AudioDir, error) {
 		files = append(files, name)
 	}
 	ad.Files = files
-	ad.ExpandToAbsPath()
 	ad.RemoveNonAudioFiles()
+	ad.ExpandToAbsPath()
 	err = os.Chdir("..")
 	if err != nil {
 		return AudioDir{}, err
@@ -174,9 +182,21 @@ func NewAD(dir string, dc *DaemonChannel) (AudioDir, error) {
 }
 
 func isAudio(file string) bool {
-	f, e := exec.Command("file", "--mime-type", "-b", file).Output()
-	if e != nil {
+	t, err := mimetype.DetectFile(file)
+	if err != nil {
 		return false
 	}
-	return bytes.Contains(f, []byte("audio"))
+	ty := t.String()
+	if len(ty) >= 6 && ty[:6] == "audio/" {
+		return true
+	}
+	// fallback to file(1)
+	if ty == "application/octet-stream" {
+		f, e := exec.Command("file", "--mime-type", "-b", file).Output()
+		if e != nil {
+			return false
+		}
+		return bytes.Contains(f, []byte("audio/"))
+	}
+	return false
 }
