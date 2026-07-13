@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"time"
 )
 
@@ -37,6 +38,12 @@ func main() {
 		}
 		fmt.Println(p.Next(true))
 		time.Sleep(time.Second * 3)
+		d := dc.Duration().Data
+		currpos := dc.CurrentPos().Data
+		df, _ := d.(float64)
+		currposf, _ := currpos.(float64)
+		fmt.Printf("duration: %v\n", math.Round(df*1000))
+		fmt.Printf("CurrentPos: %v\n", math.Round(currposf*1000))
 		i--
 	}
 	fmt.Println("done.")

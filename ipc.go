@@ -78,6 +78,14 @@ func (dc *DaemonChannel) TogglePlay() MpvResponse {
 	return dc.Pause()
 }
 
+func (dc *DaemonChannel) Duration() MpvResponse {
+	return dc.command(`{"command":["get_property","duration/full"]}`)
+}
+
+func (dc *DaemonChannel) CurrentPos() MpvResponse {
+	return dc.command(`{"command":["get_property","time-pos/full"]}`)
+}
+
 func (dc *DaemonChannel) PlayFile(file string) MpvResponse {
 	return dc.command(`{"command":["loadfile","` + file + `"]}`)
 }
@@ -253,6 +261,7 @@ func InitServer(path string) (*MpvClient, error) {
 		"--osd-level=0",
 		"--no-input-default-bindings",
 		"--load-scripts=no",
+		"--terminal=no",
 		ipcServerOption,
 	)
 	err = cmd.Start()
