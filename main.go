@@ -3,13 +3,24 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
 	"time"
 )
 
-func eventReciever(ec chan MpvEvent) {
+func eventHandler(ec chan MpvEvent) {
 	for e := range ec {
 		fmt.Printf("%+v\n", e)
+	}
+}
+
+func DurationDaemon(dc *DaemonChannel, dchan chan uint) {
+	if dc == nil {
+		return
+	}
+	select {
+	case <-dchan:
+		{
+			// todo
+		}
 	}
 }
 
@@ -18,7 +29,7 @@ func main() {
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
-	go eventReciever(e)
+	go eventHandler(e)
 	p, err := NewAD("audio", &dc)
 	if err != nil {
 		log.Fatal(err)
@@ -35,15 +46,11 @@ func main() {
 		if a {
 			fmt.Println(p.Prev(false))
 			a = false
+			time.Sleep(time.Second * 10)
+			continue
 		}
 		fmt.Println(p.Next(true))
-		time.Sleep(time.Second * 3)
-		d := dc.Duration().Data
-		currpos := dc.CurrentPos().Data
-		df, _ := d.(float64)
-		currposf, _ := currpos.(float64)
-		fmt.Printf("duration: %v\n", math.Round(df*1000))
-		fmt.Printf("CurrentPos: %v\n", math.Round(currposf*1000))
+		time.Sleep(time.Second * 10)
 		i--
 	}
 	fmt.Println("done.")

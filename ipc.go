@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"math/rand"
 	"net"
 	"os"
@@ -84,6 +85,10 @@ func (dc *DaemonChannel) Duration() MpvResponse {
 
 func (dc *DaemonChannel) CurrentPos() MpvResponse {
 	return dc.command(`{"command":["get_property","time-pos/full"]}`)
+}
+
+func secsToms(s float64) uint {
+	return uint(math.Round(s * 1000))
 }
 
 func (dc *DaemonChannel) PlayFile(file string) MpvResponse {
@@ -252,8 +257,8 @@ func InitServer(path string) (*MpvClient, error) {
 		"--vo=null",
 		"--no-config",
 		"--cache=no",
-		"--demuxer-max-bytes=1MiB",
-		"--demuxer-max-back-bytes=0",
+		"--demuxer-max-bytes=512KiB",
+		"--demuxer-max-back-bytes=512KiB",
 		"--demuxer-readahead-secs=0",
 		"--audio-buffer=0.1",
 		"--ytdl=no",
