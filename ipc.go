@@ -23,11 +23,11 @@ type MpvClient struct {
 }
 
 type MpvDaemon struct {
-	closed    bool
-	client    *MpvClient
-	eventChan chan MpvEvent
-	channels  map[int64]chan MpvResponse
-	m         sync.Mutex
+	m            sync.Mutex
+	closed       bool
+	client       *MpvClient
+	channels     map[int64]chan MpvResponse
+	eventChannel chan MpvEvent
 }
 
 type MpvResponse struct {
@@ -50,7 +50,7 @@ type MpvEvent struct {
 }
 
 type DaemonChannel struct {
-	Send    chan string
+	Send    chan<- string
 	Receive chan chan MpvResponse
 	Lock    sync.Mutex
 }
@@ -63,16 +63,26 @@ func (dc *DaemonChannel) command(c string) MpvResponse {
 	return <-r
 }
 
+func (dc *DaemonChannel) getProperty(property string) MpvResponse {
+	return dc.command(`{"command":["get_property","` + property + `"]}`)
+}
+
+func (dc *DaemonChannel) setProperty(property string, data any) MpvResponse {
+	return dc.command(
+		fmt.Sprintf(`{"command":["set_property", "%v", %v]}`, property, data),
+	)
+}
+
 func (dc *DaemonChannel) Play() MpvResponse {
-	return dc.command(`{"command":["set_property","pause",false]}`)
+	return dc.setProperty("pause", false)
 }
 
 func (dc *DaemonChannel) Pause() MpvResponse {
-	return dc.command(`{"command":["set_property","pause",true]}`)
+	return dc.setProperty("pause", true)
 }
 
 func (dc *DaemonChannel) TogglePlay() MpvResponse {
-	playState := dc.command(`{"command":["get_property","pause"]}`)
+	playState := dc.getProperty("pause")
 	if playState.Data == true {
 		return dc.Play()
 	}
@@ -80,11 +90,11 @@ func (dc *DaemonChannel) TogglePlay() MpvResponse {
 }
 
 func (dc *DaemonChannel) Duration() MpvResponse {
-	return dc.command(`{"command":["get_property","duration/full"]}`)
+	return dc.getProperty("duration/full")
 }
 
 func (dc *DaemonChannel) CurrentPos() MpvResponse {
-	return dc.command(`{"command":["get_property","time-pos/full"]}`)
+	return dc.getProperty("time-pos/full")
 }
 
 func secsToms(s float64) uint {
@@ -99,19 +109,19 @@ func InitDaemon(client *MpvClient) (chan MpvEvent, MpvDaemon) {
 	eventc := make(chan MpvEvent, 10)
 	channels := make(map[int64]chan MpvResponse)
 	return eventc, MpvDaemon{
-		client:    client,
-		eventChan: eventc,
-		channels:  channels,
+		client:       client,
+		channels:     channels,
+		eventChannel: eventc,
 	}
 }
 
-func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan bool) {
+func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan Empty) {
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		select {
 		case _ = <-qc:
 			{
-				qc <- true
+				qc <- Nothing
 				break
 			}
 		default:
@@ -123,7 +133,7 @@ func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan bool) {
 				if response.Event != "" {
 					var event MpvEvent
 					json.Unmarshal(bReply, &event)
-					md.eventChan <- event
+					md.eventChannel <- event
 				}
 				if response.RequestID != 0 {
 					md.m.Lock()
@@ -141,7 +151,7 @@ func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan bool) {
 		}
 	}
 	_ = scanner.Err()
-	qc <- true
+	qc <- Nothing
 }
 
 func generateUniqueRID(md *MpvDaemon) int64 {
@@ -165,7 +175,7 @@ func waitForCommands(
 	sendCommands chan string,
 	recieveChan chan chan MpvResponse,
 	md *MpvDaemon,
-	qc chan bool,
+	qc chan Empty,
 ) {
 	for {
 		select {
@@ -193,7 +203,7 @@ func waitForCommands(
 			}
 		case _ = <-qc:
 			{
-				qc <- true
+				qc <- Nothing
 				break
 			}
 		}
@@ -203,22 +213,22 @@ func waitForCommands(
 func (md *MpvDaemon) RunDaemon(
 	sendCommands chan string,
 	recieveChan chan chan MpvResponse,
-	quit chan bool,
+	quit chan Empty,
 ) {
 	var (
-		mpvRepQC         = make(chan bool, 2)
-		WaitOnCommandsQC = make(chan bool, 2)
+		mpvRepQC         = make(chan Empty, 2)
+		WaitOnCommandsQC = make(chan Empty, 2)
 	)
 	go mpvReplies(md, md.client.conn, mpvRepQC)
 	go waitForCommands(sendCommands, recieveChan, md, WaitOnCommandsQC)
 	<-quit
-	mpvRepQC <- true
-	WaitOnCommandsQC <- true
+	mpvRepQC <- Nothing
+	WaitOnCommandsQC <- Nothing
 	<-mpvRepQC
 	<-WaitOnCommandsQC
 	md.client.Close()
 	md.closed = true
-	quit <- true
+	quit <- Nothing
 }
 
 func (mpvc *MpvClient) Close() error {
@@ -290,7 +300,7 @@ func InitServer(path string) (*MpvClient, error) {
 	return &MpvClient{path, conn, cmd}, nil
 }
 
-func SetupDaemon() (dc DaemonChannel, quitChan chan bool, eventChan chan MpvEvent, err error) {
+func SetupDaemon() (dc DaemonChannel, quitChan chan Empty, eventChan <-chan MpvEvent, err error) {
 	mpvClient, err := InitServer(GeneratePath())
 	if err != nil {
 		return DaemonChannel{}, nil, nil, fmt.Errorf(
@@ -301,9 +311,9 @@ func SetupDaemon() (dc DaemonChannel, quitChan chan bool, eventChan chan MpvEven
 	eventChan, daemon := InitDaemon(mpvClient)
 	commandChan := make(chan string, 10)
 	responseChan := make(chan chan MpvResponse, 10)
-	quitChan = make(chan bool)
-	dc = DaemonChannel{Send: commandChan, Receive: responseChan}
+	quitChan = make(chan Empty)
 	go daemon.RunDaemon(commandChan, responseChan, quitChan)
+	dc = DaemonChannel{Send: commandChan, Receive: responseChan}
 	return
 }
 

@@ -6,52 +6,70 @@ import (
 	"time"
 )
 
-func eventHandler(ec chan MpvEvent) {
-	for e := range ec {
-		fmt.Printf("%+v\n", e)
+type Empty struct{}
+
+var Nothing = Empty{}
+
+func eventHandler(eventChannel <-chan MpvEvent, playlist *Playlist) {
+	if playlist == nil {
+		return
+	}
+	for event := range eventChannel {
+		if event.Event == "end-file" && event.Reason == "eof" {
+			playlist.Next(true)
+		}
+		fmt.Printf("%+v\n", event)
 	}
 }
 
-func DurationDaemon(dc *DaemonChannel, dchan chan uint) {
+func DurationDaemon(dc *DaemonChannel, dchan chan uint, req chan Empty) {
 	if dc == nil {
 		return
 	}
-	select {
-	case <-dchan:
-		{
-			// todo
+	var lastDurationQuery time.Time = time.Now()
+	var lastCheckedDuration uint
+	tick := time.Tick(time.Millisecond * 100)
+	for {
+		select {
+		case <-req:
+			{
+				if lastCheckedDuration != 0 {
+					g := time.Since(lastDurationQuery)
+					dchan <- uint(g.Milliseconds() + int64(lastCheckedDuration))
+				} else {
+					dchan <- 0
+				}
+			}
+		case <-tick:
+			{
+				d := dc.CurrentPos()
+				lastDurationQuery = time.Now()
+				currentDuration, _ := d.Data.(float64)
+				lastCheckedDuration = secsToms(currentDuration)
+			}
 		}
 	}
 }
 
 func main() {
-	dc, q, e, err := SetupDaemon()
+	dc, _, e, err := SetupDaemon()
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
-	go eventHandler(e)
 	p, err := NewAD("audio", &dc)
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := true
-	i := 5
 	p.RemoveNonAudioFiles()
-	for {
-		if i == 0 {
-			q <- true
-			<-q
-			break
-		}
-		if a {
-			fmt.Println(p.Prev(false))
-			a = false
-			time.Sleep(time.Second * 10)
-			continue
-		}
-		fmt.Println(p.Next(true))
-		time.Sleep(time.Second * 10)
-		i--
+	go eventHandler(e, &p.Playlist)
+	t := time.Tick(time.Millisecond * 1000)
+	d := make(chan uint, 2)
+	b := make(chan Empty)
+	go DurationDaemon(&dc, d, b)
+	p.Prev(false)
+	for range t {
+		b <- Nothing
+		dur := <-d
+		fmt.Println(dur, " from daemon")
 	}
-	fmt.Println("done.")
 }
