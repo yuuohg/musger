@@ -115,8 +115,8 @@ func InitDaemon(client *MpvClient) (chan MpvEvent, MpvDaemon) {
 	}
 }
 
-func mpvReplies(md *MpvDaemon, conn net.Conn, qc chan Empty) {
-	scanner := bufio.NewScanner(conn)
+func mpvReplies(md *MpvDaemon, qc chan Empty) {
+	scanner := bufio.NewScanner(md.client.conn)
 	for scanner.Scan() {
 		select {
 		case _ = <-qc:
@@ -219,7 +219,7 @@ func (md *MpvDaemon) RunDaemon(
 		mpvRepQC         = make(chan Empty, 2)
 		WaitOnCommandsQC = make(chan Empty, 2)
 	)
-	go mpvReplies(md, md.client.conn, mpvRepQC)
+	go mpvReplies(md, mpvRepQC)
 	go waitForCommands(sendCommands, recieveChan, md, WaitOnCommandsQC)
 	<-quit
 	mpvRepQC <- Nothing
