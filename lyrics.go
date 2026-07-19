@@ -7,7 +7,7 @@ import (
 )
 
 type compareNum struct {
-	lower, upper uint
+	lower, upper uint64
 }
 
 type Lyric struct {
@@ -21,8 +21,8 @@ type Lrc struct {
 
 type LrcDisplay struct {
 	lrc        Lrc
-	lookBehind uint
-	lookAhead  uint
+	lookBehind uint64
+	lookAhead  uint64
 }
 
 type LrcEmpty struct{}
@@ -31,7 +31,7 @@ func (LrcEmpty) Error() string {
 	return "no lrc lyric"
 }
 
-func (ld LrcDisplay) ShowLyrics(timestamp uint) (string, error) {
+func (ld LrcDisplay) ShowLyrics(timestamp uint64) (string, error) {
 	emptyLyric := Lyric{}
 	if ld.lrc.lyric == nil {
 		return "", LrcEmpty{}
@@ -128,7 +128,7 @@ func LrctextToLrc(text string) (Lrc, error) {
 	return lrc, nil
 }
 
-func (lrc *Lrc) GetLyricfromTimestamp(timeMs uint) (Lyric, int, error) {
+func (lrc *Lrc) GetLyricfromTimestamp(timeMs uint64) (Lyric, int, error) {
 	if lrc.lyric == nil {
 		return Lyric{}, -1, LrcEmpty{}
 	}
@@ -151,7 +151,7 @@ func (lrc *Lrc) GetLyricfromTimestamp(timeMs uint) (Lyric, int, error) {
 	return Lyric{}, -1, nil
 }
 
-func (cn *compareNum) Between(num uint) bool {
+func (cn *compareNum) Between(num uint64) bool {
 	return cn.lower <= num && num <= cn.upper
 }
 
@@ -167,7 +167,7 @@ func IsDigit(b byte) bool {
 	return b >= 48 && b <= 57
 }
 
-func timestampToMs(timestamp string) (uint, error) {
+func timestampToMs(timestamp string) (uint64, error) {
 	if len(timestamp) != 10 {
 		return 0, TimestampError{"invalid length"}
 	}
@@ -192,5 +192,5 @@ func timestampToMs(timestamp string) (uint, error) {
 	minute, _ := strconv.Atoi(string(timestamp[1:3]))
 	secs, _ := strconv.Atoi(string(timestamp[4:6]))
 	milis, _ := strconv.Atoi(string(timestamp[7:9]))
-	return uint(((minute*60)+secs)*1000 + milis*10), nil
+	return uint64(((minute*60)+secs)*1000 + milis*10), nil
 }

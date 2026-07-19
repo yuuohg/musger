@@ -4,13 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"math"
 	"math/rand"
 	"net"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -97,8 +95,8 @@ func (dc *DaemonChannel) CurrentPos() MpvResponse {
 	return dc.getProperty("time-pos/full")
 }
 
-func secsToms(s float64) uint {
-	return uint(math.Round(s * 1000))
+func secsToms(s float64) uint64 {
+	return uint64(math.Round(s * 1000))
 }
 
 func (dc *DaemonChannel) PlayFile(file string) MpvResponse {
@@ -117,12 +115,13 @@ func InitDaemon(client *MpvClient) (chan MpvEvent, MpvDaemon) {
 
 func mpvReplies(md *MpvDaemon, qc chan Empty) {
 	scanner := bufio.NewScanner(md.client.conn)
+SCAN:
 	for scanner.Scan() {
 		select {
 		case _ = <-qc:
 			{
 				qc <- Nothing
-				break
+				break SCAN
 			}
 		default:
 			{
@@ -154,18 +153,6 @@ func mpvReplies(md *MpvDaemon, qc chan Empty) {
 	qc <- Nothing
 }
 
-func generateUniqueRID(md *MpvDaemon) int64 {
-	var requestID int64
-	rids := slices.Collect(maps.Keys(md.channels))
-	for {
-		requestID = int64(rand.Uint64())
-		if !slices.Contains(rids, requestID) {
-			break
-		}
-	}
-	return requestID
-}
-
 func cleanUpString(s string) string {
 	noSpaces := strings.TrimSpace(s)
 	return noSpaces[:len(noSpaces)-1]
@@ -177,6 +164,8 @@ func waitForCommands(
 	md *MpvDaemon,
 	qc chan Empty,
 ) {
+	var count int64
+COMMANDS:
 	for {
 		select {
 		case command := <-sendCommands:
@@ -184,27 +173,26 @@ func waitForCommands(
 				if len(command) == 0 {
 					continue
 				}
-				md.m.Lock()
-				requestID := generateUniqueRID(md)
+				count += 1
 				f := fmt.Sprintf(
 					`%v,"request_id":%v}`,
 					cleanUpString(command),
-					requestID,
+					count,
 				)
 				_, err := fmt.Fprintln(md.client.conn, f)
 				if err != nil {
-					md.m.Unlock()
 					break
 				}
 				responseChan := make(chan MpvResponse, 2)
-				md.channels[requestID] = responseChan
+				md.m.Lock()
+				md.channels[count] = responseChan
 				md.m.Unlock()
 				recieveChan <- responseChan
 			}
 		case _ = <-qc:
 			{
 				qc <- Nothing
-				break
+				break COMMANDS
 			}
 		}
 	}
