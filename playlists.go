@@ -95,7 +95,6 @@ func ReadUTF8File(name string) ([]byte, error) {
 type Playlist struct {
 	name     string
 	Files    []string
-	dc       *DaemonChannel
 	currSong int
 }
 
@@ -114,9 +113,9 @@ func (p *Playlist) RemoveNonAudioFiles() {
 	}
 }
 
-func (p *Playlist) Next(wrap bool) (MpvResponse, error) {
+func (p *Playlist) Next(wrap bool) (string, error) {
 	if len(p.Files) == 0 {
-		return MpvResponse{}, fmt.Errorf("Empty playlist")
+		return "", fmt.Errorf("Empty playlist")
 	}
 	p.currSong++
 	isAtEnd := p.currSong == len(p.Files)
@@ -125,21 +124,21 @@ func (p *Playlist) Next(wrap bool) (MpvResponse, error) {
 	} else if isAtEnd {
 		p.currSong--
 	}
-	return p.dc.PlayFile(p.Files[p.currSong]), nil
+	return p.Files[p.currSong], nil
 }
 
-func (p *Playlist) Prev(wrap bool) (MpvResponse, error) {
+func (p *Playlist) Prev(wrap bool) (string, error) {
 	if len(p.Files) == 0 {
-		return MpvResponse{}, fmt.Errorf("Empty playlist")
+		return "", fmt.Errorf("Empty playlist")
 	}
 	p.currSong--
-	isAtStart := p.currSong == -1
+	isAtStart := p.currSong < 0
 	if isAtStart && wrap {
 		p.currSong = len(p.Files) - 1
 	} else if isAtStart {
 		p.currSong++
 	}
-	return p.dc.PlayFile(p.Files[p.currSong]), nil
+	return p.Files[p.currSong], nil
 }
 
 func (p *Playlist) ExpandToAbsPath() error {
@@ -224,13 +223,13 @@ func (p *Playlist) RemoveDuplicates() {
 	p.Files = nd
 }
 
-func NewAD(dir string, dc *DaemonChannel) (Playlist, error) {
+func NewAD(dir string) (Playlist, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return Playlist{dc: dc}, err
+		return Playlist{}, err
 	}
 	os.Chdir(dir)
-	audioDir := Playlist{dir, make([]string, 0, 5), dc, 0}
+	audioDir := Playlist{dir, make([]string, 0, 5), 0}
 	if len(entries) == 0 {
 		return audioDir, nil
 	}
@@ -247,7 +246,7 @@ func NewAD(dir string, dc *DaemonChannel) (Playlist, error) {
 	audioDir.ExpandToAbsPath()
 	err = os.Chdir("..")
 	if err != nil {
-		return Playlist{dc: dc}, err
+		return Playlist{}, err
 	}
 	return audioDir, nil
 }

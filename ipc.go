@@ -2,119 +2,72 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
 	"net"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/jfreymuth/pulse"
+)
+
+const (
+	Play  = `{"command":["set_property","pause",false]}`
+	Pause = `{"command":["set_property","pause",true]}`
+	Stop  = `{"command":["stop"]}`
 )
 
 type MpvClient struct {
-	path   string
-	conn   net.Conn
-	mpvCmd *exec.Cmd
-}
-
-type MpvDaemon struct {
-	m            sync.Mutex
-	closed       bool
-	client       *MpvClient
-	channels     map[int64]chan MpvResponse
-	eventChannel chan MpvEvent
+	path      string
+	conn      net.Conn
+	mpvCmd    *exec.Cmd
+	pulsePath string
 }
 
 type MpvResponse struct {
-	Data      any    `json:"data,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Event     string `json:"event,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	RequestID int64  `json:"request_id,omitempty"`
-}
-
-type MpvEvent struct {
 	Data            any     `json:"data,omitempty"`
+	Error           string  `json:"error,omitempty"`
+	FileError       string  `json:"file_error,omitempty"`
+	Event           string  `json:"event,omitempty"`
+	Reason          string  `json:"reason,omitempty"`
+	RequestID       int64   `json:"request_id,omitempty"`
 	Text            string  `json:"text,omitempty"`
 	Name            string  `json:"name,omitempty"`
-	Event           string  `json:"event,omitempty"`
 	Level           string  `json:"level,omitempty"`
-	Reason          string  `json:"reason,omitempty"`
 	Prefix          string  `json:"prefix,omitempty"`
 	PlaylistEntryID float64 `json:"playlist_entry_id,omitempty"`
+	originalJson    string
 }
 
-type DaemonChannel struct {
-	Send    chan<- string
-	Receive chan chan MpvResponse
-	Lock    sync.Mutex
+type PactlInfo struct {
+	ServerString string `json:"server_string,omitempty"`
 }
 
-func (dc *DaemonChannel) command(c string) MpvResponse {
-	dc.Lock.Lock()
-	dc.Send <- c
-	r := <-dc.Receive
-	dc.Lock.Unlock()
-	return <-r
+func (client *MpvClient) sendCommand(command string) {
+	fmt.Fprintln(client.conn, strings.TrimSpace(command))
 }
 
-func (dc *DaemonChannel) getProperty(property string) MpvResponse {
-	return dc.command(`{"command":["get_property","` + property + `"]}`)
+func loadfile(path string) string {
+	return `{"command":["loadfile","` + path + `"]}`
 }
 
-func (dc *DaemonChannel) setProperty(property string, data any) MpvResponse {
-	return dc.command(
-		fmt.Sprintf(`{"command":["set_property", "%v", %v]}`, property, data),
-	)
+func observeProperty(property string) string {
+	return `{"command":["observe_property",1,"` + property + `"]}`
 }
 
-func (dc *DaemonChannel) Play() MpvResponse {
-	return dc.setProperty("pause", false)
-}
-
-func (dc *DaemonChannel) Pause() MpvResponse {
-	return dc.setProperty("pause", true)
-}
-
-func (dc *DaemonChannel) TogglePlay() MpvResponse {
-	playState := dc.getProperty("pause")
-	if playState.Data == true {
-		return dc.Play()
-	}
-	return dc.Pause()
-}
-
-func (dc *DaemonChannel) Duration() MpvResponse {
-	return dc.getProperty("duration/full")
-}
-
-func (dc *DaemonChannel) CurrentPos() MpvResponse {
-	return dc.getProperty("time-pos/full")
-}
-
-func secsToms(s float64) uint64 {
-	return uint64(math.Round(s * 1000))
-}
-
-func (dc *DaemonChannel) PlayFile(file string) MpvResponse {
-	return dc.command(`{"command":["loadfile","` + file + `"]}`)
-}
-
-func InitDaemon(client *MpvClient) (chan MpvEvent, MpvDaemon) {
-	eventc := make(chan MpvEvent, 10)
-	channels := make(map[int64]chan MpvResponse)
-	return eventc, MpvDaemon{
-		client:       client,
-		channels:     channels,
-		eventChannel: eventc,
+func TogglePlay(pause bool) string {
+	if pause {
+		return Play
+	} else {
+		return Pause
 	}
 }
 
-func mpvReplies(md *MpvDaemon, qc chan Empty) {
-	scanner := bufio.NewScanner(md.client.conn)
+func (client *MpvClient) mpvReplies(msgChan chan MpvResponse, qc chan Empty) {
+	scanner := bufio.NewScanner(client.conn)
 SCAN:
 	for scanner.Scan() {
 		select {
@@ -127,96 +80,14 @@ SCAN:
 			{
 				reply := scanner.Text()
 				var response MpvResponse
-				bReply := []byte(reply)
-				json.Unmarshal(bReply, &response)
-				if response.Event != "" {
-					var event MpvEvent
-					json.Unmarshal(bReply, &event)
-					md.eventChannel <- event
-				}
-				if response.RequestID != 0 {
-					md.m.Lock()
-					ch, inChan := md.channels[response.RequestID]
-					if !inChan {
-						md.m.Unlock()
-						continue
-					}
-					ch <- response
-					close(ch)
-					delete(md.channels, response.RequestID)
-					md.m.Unlock()
-				}
+				json.Unmarshal([]byte(reply), &response)
+				response.originalJson = reply
+				msgChan <- response
 			}
 		}
 	}
 	_ = scanner.Err()
 	qc <- Nothing
-}
-
-func cleanUpString(s string) string {
-	noSpaces := strings.TrimSpace(s)
-	return noSpaces[:len(noSpaces)-1]
-}
-
-func waitForCommands(
-	sendCommands chan string,
-	recieveChan chan chan MpvResponse,
-	md *MpvDaemon,
-	qc chan Empty,
-) {
-	var count int64
-COMMANDS:
-	for {
-		select {
-		case command := <-sendCommands:
-			{
-				if len(command) == 0 {
-					continue
-				}
-				count += 1
-				f := fmt.Sprintf(
-					`%v,"request_id":%v}`,
-					cleanUpString(command),
-					count,
-				)
-				_, err := fmt.Fprintln(md.client.conn, f)
-				if err != nil {
-					break
-				}
-				responseChan := make(chan MpvResponse, 2)
-				md.m.Lock()
-				md.channels[count] = responseChan
-				md.m.Unlock()
-				recieveChan <- responseChan
-			}
-		case _ = <-qc:
-			{
-				qc <- Nothing
-				break COMMANDS
-			}
-		}
-	}
-}
-
-func (md *MpvDaemon) RunDaemon(
-	sendCommands chan string,
-	recieveChan chan chan MpvResponse,
-	quit chan Empty,
-) {
-	var (
-		mpvRepQC         = make(chan Empty, 2)
-		WaitOnCommandsQC = make(chan Empty, 2)
-	)
-	go mpvReplies(md, mpvRepQC)
-	go waitForCommands(sendCommands, recieveChan, md, WaitOnCommandsQC)
-	<-quit
-	mpvRepQC <- Nothing
-	WaitOnCommandsQC <- Nothing
-	<-mpvRepQC
-	<-WaitOnCommandsQC
-	md.client.Close()
-	md.closed = true
-	quit <- Nothing
 }
 
 func (mpvc *MpvClient) Close() error {
@@ -235,13 +106,23 @@ func (mpvc *MpvClient) Close() error {
 	return nil
 }
 
-func InitServer(path string) (*MpvClient, error) {
+func InitServer(path string, pulsePath string) (*MpvClient, error) {
 	p := exec.Command("pkill", "-9", "-f", `mpv --idle=yes .*_mpv\.sock`)
 	k := exec.Command("pkill", "-9", "-f", "pulseaudio.*")
 	p.Run()
 	k.Run()
 	ipcServerOption := fmt.Sprintf("--input-ipc-server=%v", path)
-	pulse := exec.Command("pulseaudio", "--start", "--exit-idle-time=-1")
+	pulseSocketOption := fmt.Sprintf(
+		"module-native-protocol-unix socket=%v",
+		pulsePath,
+	)
+	pulse := exec.Command(
+		"pulseaudio",
+		"--start",
+		"--exit-idle-time=-1",
+		"-L",
+		pulseSocketOption,
+	)
 	err := pulse.Run()
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't start pulseaudio: %w", err)
@@ -265,6 +146,7 @@ func InitServer(path string) (*MpvClient, error) {
 		"--no-input-default-bindings",
 		"--load-scripts=no",
 		"--terminal=no",
+		"--audio-stream-silence=yes",
 		ipcServerOption,
 	)
 	err = cmd.Start()
@@ -285,42 +167,41 @@ func InitServer(path string) (*MpvClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't connect to ipc socket: %w", err)
 	}
-	return &MpvClient{path, conn, cmd}, nil
+	return &MpvClient{path, conn, cmd, pulsePath}, nil
 }
 
-func SetupDaemon() (dc DaemonChannel, quitChan chan Empty, eventChan <-chan MpvEvent, err error) {
-	mpvClient, err := InitServer(GeneratePath())
+func (client *MpvClient) KillPulse() error {
+	k := exec.Command("pkill", "-9", "-f", "pulseaudio.*")
+	e := k.Run()
+	if e != nil {
+		return e
+	}
+	return nil
+}
+
+func (client *MpvClient) UpdatePulsePath() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "pactl", "-f", "json", "info")
+	out, err := cmd.Output()
 	if err != nil {
-		return DaemonChannel{}, nil, nil, fmt.Errorf(
-			"Could not start mpv: %w",
-			err,
-		)
+		return err
 	}
-	eventChan, daemon := InitDaemon(mpvClient)
-	commandChan := make(chan string, 10)
-	responseChan := make(chan chan MpvResponse, 10)
-	quitChan = make(chan Empty)
-	go daemon.RunDaemon(commandChan, responseChan, quitChan)
-	dc = DaemonChannel{Send: commandChan, Receive: responseChan}
-	return
+	var s PactlInfo
+	json.Unmarshal(out, &s)
+	if s.ServerString != "" {
+		client.pulsePath = s.ServerString
+		return nil
+	}
+	return nil
 }
 
-var characters = []rune(
-	"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
-)
-
-func randSeq(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = characters[rand.Intn(len(characters))]
+func (client *MpvClient) PulseaudioIsDead() bool {
+	c, e := pulse.NewClient(
+		pulse.ClientServerString("unix:" + client.pulsePath),
+	)
+	if c != nil {
+		c.Close()
 	}
-	return string(b)
-}
-
-func GeneratePath() string {
-	rt := os.ExpandEnv("$TMPDIR")
-	if rt == "" {
-		return "/usr/tmp/" + randSeq(24) + "_mpv.sock"
-	}
-	return rt + "/" + randSeq(24) + "_mpv.sock"
+	return e != nil
 }
