@@ -5,3 +5,5 @@ audio
 music
 core
 *.txt
+.*
+*.json

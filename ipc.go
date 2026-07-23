@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	Play  = `{"command":["set_property","pause",false]}`
-	Pause = `{"command":["set_property","pause",true]}`
-	Stop  = `{"command":["stop"]}`
+	Play             = `{"command":["set_property","pause",false]}`
+	Pause            = `{"command":["set_property","pause",true]}`
+	SeekForwardFive  = `{"command":["seek",5]}`
+	SeekBackwardFive = `{"command":["seek",-5]}`
+	Stop             = `{"command":["stop"]}`
 )
 
 type MpvClient struct {
@@ -99,33 +101,39 @@ func (mpvc *MpvClient) Close() error {
 	if err != nil {
 		return err
 	}
-	k := exec.Command("pkill", "-9", "-f", `mpv --idle=yes .*_mpv\.sock`)
-	k.Run()
-	k = exec.Command("pkill", "-9", "-f", "pulseaudio.*")
-	k.Run()
+	mpvc.mpvCmd.Process.Kill()
 	return nil
 }
 
 func InitServer(path string, pulsePath string) (*MpvClient, error) {
-	p := exec.Command("pkill", "-9", "-f", `mpv --idle=yes .*_mpv\.sock`)
-	k := exec.Command("pkill", "-9", "-f", "pulseaudio.*")
-	p.Run()
-	k.Run()
+	var err error
 	ipcServerOption := fmt.Sprintf("--input-ipc-server=%v", path)
-	pulseSocketOption := fmt.Sprintf(
-		"module-native-protocol-unix socket=%v",
-		pulsePath,
-	)
-	pulse := exec.Command(
-		"pulseaudio",
-		"--start",
-		"--exit-idle-time=-1",
-		"-L",
-		pulseSocketOption,
-	)
-	err := pulse.Run()
-	if err != nil {
-		return nil, fmt.Errorf("Couldn't start pulseaudio: %w", err)
+	logf(BLUE, "Socket: %v", path)
+	if !PulseProcessAlive() {
+		logf(BLUE, "Pulseaudio not running, starting")
+		pulseSocketOption := fmt.Sprintf(
+			"module-native-protocol-unix socket=%v",
+			pulsePath,
+		)
+		pulse := exec.Command(
+			"pulseaudio",
+			"--start",
+			"--exit-idle-time=-1",
+			"-L",
+			pulseSocketOption,
+		)
+		o, err := pulse.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("Couldn't start pulseaudio: %w", err)
+		}
+		if !pulse.ProcessState.Success() {
+			return nil, fmt.Errorf(
+				"Couldn't start pulseaudio:\nExit Code: %v\nOutput:\n%v\n",
+				pulse.ProcessState.ExitCode(),
+				string(o),
+			)
+		}
+		logf(GREEN, "Pulseaudio started")
 	}
 	cmd := exec.Command(
 		"mpv",
@@ -146,17 +154,19 @@ func InitServer(path string, pulsePath string) (*MpvClient, error) {
 		"--no-input-default-bindings",
 		"--load-scripts=no",
 		"--terminal=no",
-		"--audio-stream-silence=yes",
 		ipcServerOption,
 	)
 	err = cmd.Start()
+	logf(BLUE, "Starting mpv")
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't start mpv: %w", err)
 	}
 	if cmd.Process == nil {
-		return nil, fmt.Errorf("Server did not start")
+		return nil, fmt.Errorf("mpv did not start")
 	}
+	var i uint
 	for range 1000 {
+		i += 25
 		_, err := os.Stat(path)
 		if err == nil {
 			break
@@ -167,14 +177,20 @@ func InitServer(path string, pulsePath string) (*MpvClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't connect to ipc socket: %w", err)
 	}
+	logf(GREEN, "mpv started, took %.2fs", float64(i)/1000)
 	return &MpvClient{path, conn, cmd, pulsePath}, nil
 }
 
+func logf(color, format string, a ...any) {
+	fmt.Printf(color+format+RESET+"\n", a...)
+}
+
 func (client *MpvClient) KillPulse() error {
-	k := exec.Command("pkill", "-9", "-f", "pulseaudio.*")
-	e := k.Run()
-	if e != nil {
-		return e
+	pk := exec.Command("pulseaudio", "--kill")
+	pk.Run()
+	if PulseProcessAlive() {
+		k := exec.Command("pkill", "-9", "-f", "pulseaudio.*")
+		return k.Run()
 	}
 	return nil
 }
@@ -182,6 +198,7 @@ func (client *MpvClient) KillPulse() error {
 func (client *MpvClient) UpdatePulsePath() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
+	logf(BLUE, "Finding server path")
 	cmd := exec.CommandContext(ctx, "pactl", "-f", "json", "info")
 	out, err := cmd.Output()
 	if err != nil {
@@ -190,6 +207,7 @@ func (client *MpvClient) UpdatePulsePath() error {
 	var s PactlInfo
 	json.Unmarshal(out, &s)
 	if s.ServerString != "" {
+		logf(GREEN, "Found server path: %v", s.ServerString)
 		client.pulsePath = s.ServerString
 		return nil
 	}
@@ -204,4 +222,13 @@ func (client *MpvClient) PulseaudioIsDead() bool {
 		c.Close()
 	}
 	return e != nil
+}
+
+func PulseProcessAlive() bool {
+	c := exec.Command("pulseaudio", "--check")
+	r := c.Run()
+	if r != nil {
+		return false
+	}
+	return c.ProcessState.ExitCode() == 0
 }

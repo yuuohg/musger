@@ -13,7 +13,12 @@ var Nothing = Empty{}
 func main() {
 	model, quitChan, c, err := initModel()
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf(
+			"%vError when trying to initalize mpv/pulseaudio: %v%v\n",
+			RED,
+			err.Error(),
+			RESET,
+		)
 	}
 	c.UpdatePulsePath()
 	p := tea.NewProgram(model)

@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/zeebo/xxh3"
 )
 
 func remove[T any](slice []T, s int) []T {
@@ -29,15 +33,94 @@ func remove[T any](slice []T, s int) []T {
 	return append(slice[:s], slice[s+1:]...)
 }
 
-type PlaylistJSON struct {
-	Songs []string `json:"songs"`
-	Name  string   `json:"name"`
+type MUGRFile struct {
+	Loop         int                     `json:"loop"`
+	SongMetadata map[string]SongMetadata `json:"song_metadata"`
+	Playlists    map[string][]string     `json:"playlists"`
+	Queue        []string                `json:"queue"`
+	LastPlayed   int                     `json:"last_played"`
 }
 
-type MUGRFile struct {
-	Loop      int      `json:"loop"`
-	Playlists []string `json:"playlists"`
-	Queue     string   `json:"queue"`
+type SongMetadata struct {
+	Title       string `json:"title,omitempty"`
+	Artist      string `json:"artist,omitempty"`
+	Album       string `json:"album,omitempty"`
+	AlbumArtist string `json:"album_artist,omitempty"`
+	Lyrics      string `json:"lyrics,omitempty"`
+}
+
+type Song struct {
+	Path        string
+	Title       string
+	Artist      string
+	AlbumArtist string
+	Hash        strings.Builder
+	Lyricpath   string
+	Lrc         Lrc
+	FromHash    bool
+}
+
+func (song *Song) HashAudio(hasher *xxh3.Hasher) error {
+	file, err := os.Open(song.Path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	s, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	io.Copy(hasher, file)
+	fmt.Fprintf(&song.Hash, "%v-%x", s.Size(), hasher.Sum128().Bytes())
+	hasher.Reset()
+	return nil
+}
+
+func (s *Song) isAudio() bool {
+	t, err := mimetype.DetectFile(s.Path)
+	if err != nil {
+		return false
+	}
+	ty := t.String()
+	if len(ty) >= 6 && ty[:6] == "audio/" {
+		return true
+	}
+	if ty == "application/octet-stream" {
+		f, e := exec.Command("file", "--mime-type", "-b", s.Path).Output()
+		if e != nil {
+			return false
+		}
+		return bytes.Contains(f, []byte("audio/"))
+	}
+	return false
+}
+
+func (song *Song) Load(client *MpvClient) *Song {
+	if client.PulseaudioIsDead() {
+		client.KillPulse()
+	}
+	client.sendCommand(loadfile(song.Path))
+	return song
+}
+
+func (song *Song) AddMetadata(metadata SongMetadata) {
+	song.Title = metadata.Title
+	song.Artist = metadata.Artist
+	song.AlbumArtist = metadata.AlbumArtist
+	song.Lyricpath = metadata.Lyrics
+}
+
+func (song *Song) GetLyrics() error {
+	text, err := ReadUTF8File(song.Lyricpath)
+	if err != nil {
+		return err
+	}
+	lrc, err := LrctextToLrc(string(text))
+	if err != nil {
+		return err
+	}
+	song.Lrc = lrc
+	return nil
 }
 
 func (mug *MUGRFile) Save(file string) error {
@@ -61,10 +144,15 @@ func (mug *MUGRFile) Load(file string) error {
 	if err != nil {
 		return err
 	}
-	if !json.Valid(contents) {
+	jsonNotVaild := !json.Valid(contents)
+	if jsonNotVaild {
 		return fmt.Errorf("Invaild json in %v", file)
 	}
 	json.Unmarshal(contents, mug)
+	emptyMUGR := &MUGRFile{}
+	if mug == emptyMUGR {
+		return fmt.Errorf("%v has no useful data", file)
+	}
 	return nil
 }
 
@@ -85,142 +173,176 @@ func ReadUTF8File(name string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Could not read from %v: %w", name, err)
 	}
-	isVaildUTF8 := utf8.Valid(contents)
-	if !isVaildUTF8 {
+	notVaildUTF8 := !utf8.Valid(contents)
+	if notVaildUTF8 {
 		return nil, fmt.Errorf("%v does not have valid utf8", name)
 	}
 	return contents, nil
 }
 
 type Playlist struct {
-	name     string
-	Files    []string
-	currSong int
+	Name          string
+	Songs         []Song
+	ShuffledSongs []int
+	IsShuffled    bool
+	CurrSong      int
+}
+
+func (p *Playlist) ShufflePlaylist() {
+	if len(p.Songs) == 0 {
+		return
+	}
+	p.ShuffledSongs[0] = p.CurrSong
+	if len(p.Songs) == 1 {
+		return
+	}
+	pool := make([]int, 0, len(p.Songs)-1)
+	for i := range len(p.Songs) {
+		if i == p.CurrSong {
+			continue
+		}
+		pool = append(pool, i)
+	}
+	var i int = 1
+	for len(pool) != 0 {
+		poolIdx := rand.Intn(len(pool))
+		p.ShuffledSongs[i] = pool[poolIdx]
+		pool = remove(pool, poolIdx)
+		i++
+	}
+	p.CurrSong = 0
+	p.IsShuffled = true
 }
 
 func (p *Playlist) RemoveNonAudioFiles() {
-	if len(p.Files) == 0 {
+	if len(p.Songs) == 0 {
 		return
 	}
 	removal := make([]int, 0)
-	for idx, filename := range p.Files {
-		if !isAudio(filename) {
+	for idx, song := range p.Songs {
+		if !song.isAudio() {
 			removal = append(removal, idx)
 		}
 	}
 	for i, idx := range removal {
-		p.Files = remove(p.Files, idx-i)
+		p.Songs = remove(p.Songs, idx-i)
 	}
 }
 
-func (p *Playlist) Next(wrap bool) (string, error) {
-	if len(p.Files) == 0 {
-		return "", fmt.Errorf("Empty playlist")
+func (p *Playlist) Next(wrap bool) (int, error) {
+	if len(p.Songs) == 0 {
+		return 0, fmt.Errorf("Empty playlist")
 	}
-	p.currSong++
-	isAtEnd := p.currSong == len(p.Files)
+	p.CurrSong++
+	isAtEnd := p.CurrSong >= len(p.Songs)
 	if wrap && isAtEnd {
-		p.currSong = 0
+		p.CurrSong = 0
 	} else if isAtEnd {
-		p.currSong--
+		p.CurrSong = len(p.Songs)
 	}
-	return p.Files[p.currSong], nil
+	return p.CurrSong, nil
 }
 
-func (p *Playlist) Prev(wrap bool) (string, error) {
-	if len(p.Files) == 0 {
-		return "", fmt.Errorf("Empty playlist")
+func (p *Playlist) Prev(wrap bool) (int, error) {
+	if len(p.Songs) == 0 {
+		return 0, fmt.Errorf("Empty playlist")
 	}
-	p.currSong--
-	isAtStart := p.currSong < 0
+	p.CurrSong--
+	isAtStart := p.CurrSong < 0
 	if isAtStart && wrap {
-		p.currSong = len(p.Files) - 1
+		p.CurrSong = len(p.Songs) - 1
 	} else if isAtStart {
-		p.currSong++
+		p.CurrSong = 0
 	}
-	return p.Files[p.currSong], nil
+	return p.CurrSong, nil
 }
 
 func (p *Playlist) ExpandToAbsPath() error {
-	for i, f := range p.Files {
-		abs, err := filepath.Abs(f)
+	for i, f := range p.Songs {
+		abs, err := filepath.Abs(f.Path)
 		if err != nil {
 			return err
 		}
-		p.Files[i] = abs
+		p.Songs[i].Path = abs
 	}
 	return nil
 }
 
-func (p *Playlist) Save(file string) error {
-	f, err := os.Create(file)
-	if err != nil {
-		return err
+func (p *Playlist) HashAudioFiles() {
+	if len(p.Songs) == 0 {
+		return
 	}
-	err = p.ExpandToAbsPath()
-	if err != nil {
-		return err
+	hasher := xxh3.New()
+	for _, song := range p.Songs {
+		song.HashAudio(hasher)
 	}
-	pj := PlaylistJSON{
-		Name:  p.name,
-		Songs: p.Files,
-	}
-	b, err := json.Marshal(pj)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(b)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
-func (p *Playlist) Load(file string) error {
-	contents, err := ReadUTF8File(file)
+func (p *Playlist) Save() (string, []string, error) {
+	err := p.ExpandToAbsPath()
 	if err != nil {
-		return err
+		return "", nil, err
 	}
-	if !json.Valid(contents) {
-		return fmt.Errorf("Invaild json in %v", file)
+	files := make([]string, 0, len(p.Songs))
+	for _, song := range p.Songs {
+		if song.isAudio() {
+			files = append(files, song.Path)
+		}
 	}
-	pJson := PlaylistJSON{
-		Name:  "",
-		Songs: make([]string, 0),
+	return p.Name, files, nil
+}
+
+func Load(name string, files []string) Playlist {
+	var playlist Playlist
+	playlist.Name = name
+	for _, file := range files {
+		playlist.Songs = append(playlist.Songs, Song{Path: file})
 	}
-	json.Unmarshal(contents, &pJson)
-	if pJson.Name == "" && len(pJson.Songs) == 0 {
-		return fmt.Errorf("%v does not have 'name' and 'songs' field", file)
-	}
-	p.name = pJson.Name
-	p.Files = pJson.Songs
-	p.RemoveNonAudioFiles()
-	return nil
+	playlist.RemoveNonAudioFiles()
+	playlist.RemoveDuplicates()
+	playlist.ExpandToAbsPath()
+	return playlist
 }
 
 func (p *Playlist) Moveto(idx int, destidx int) error {
-	if idx >= len(p.Files) || destidx >= len(p.Files) || idx < 0 ||
+	if idx >= len(p.Songs) || destidx >= len(p.Songs) || idx < 0 ||
 		destidx < 0 {
 		return fmt.Errorf("out of range")
 	}
-	s := p.Files[idx]
-	p.Files = remove(p.Files, idx)
-	p.Files = slices.Insert(p.Files, destidx, s)
+	s := p.Songs[idx]
+	p.Songs = remove(p.Songs, idx)
+	p.Songs = slices.Insert(p.Songs, destidx, s)
 	return nil
 }
 
 func (p *Playlist) AddPlaylist(other Playlist) {
-	p.Files = append(p.Files, other.Files...)
+	p.Songs = append(p.Songs, other.Songs...)
+	p.AllocateShuffle()
+}
+
+func (p *Playlist) AddSong(song Song) {
+	p.Songs = append(p.Songs, song)
+	p.AllocateShuffle()
+}
+
+func (p *Playlist) AllocateShuffle() {
+	if !p.IsShuffled && len(p.Songs) != len(p.ShuffledSongs) {
+		p.ShuffledSongs = make([]int, len(p.Songs))
+	}
 }
 
 func (p *Playlist) RemoveDuplicates() {
-	nd := make([]string, 0, len(p.Files))
-	for _, file := range p.Files {
-		if !slices.Contains(nd, file) {
-			nd = append(nd, file)
+	nd := make([]Song, 0, len(p.Songs))
+D:
+	for _, file := range p.Songs {
+		for _, s := range nd {
+			if file.Path == s.Path {
+				continue D
+			}
 		}
+		nd = append(nd, file)
 	}
-	p.Files = nd
+	p.Songs = nd
 }
 
 func NewAD(dir string) (Playlist, error) {
@@ -229,44 +351,26 @@ func NewAD(dir string) (Playlist, error) {
 		return Playlist{}, err
 	}
 	os.Chdir(dir)
-	audioDir := Playlist{dir, make([]string, 0, 5), 0}
+	audioDir := Playlist{Name: dir, Songs: make([]Song, 0, 5)}
 	if len(entries) == 0 {
 		return audioDir, nil
 	}
-	files := make([]string, 0, 5)
+	files := make([]Song, 0, 5)
 	for _, f := range entries {
 		if f.IsDir() {
 			continue
 		}
 		name := f.Name()
-		files = append(files, name)
+		files = append(files, Song{Path: name})
 	}
-	audioDir.Files = files
+	audioDir.Songs = files
 	audioDir.RemoveNonAudioFiles()
 	audioDir.ExpandToAbsPath()
 	err = os.Chdir("..")
 	if err != nil {
 		return Playlist{}, err
 	}
+	audioDir.ShuffledSongs = make([]int, len(audioDir.Songs))
+	go audioDir.HashAudioFiles()
 	return audioDir, nil
-}
-
-func isAudio(file string) bool {
-	t, err := mimetype.DetectFile(file)
-	if err != nil {
-		return false
-	}
-	ty := t.String()
-	if len(ty) >= 6 && ty[:6] == "audio/" {
-		return true
-	}
-	// fallback to file(1)
-	if ty == "application/octet-stream" {
-		f, e := exec.Command("file", "--mime-type", "-b", file).Output()
-		if e != nil {
-			return false
-		}
-		return bytes.Contains(f, []byte("audio/"))
-	}
-	return false
 }

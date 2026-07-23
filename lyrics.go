@@ -16,7 +16,7 @@ type Lyric struct {
 }
 
 type Lrc struct {
-	lyric []Lyric
+	lyrics []Lyric
 }
 
 type LrcDisplay struct {
@@ -33,7 +33,7 @@ func (LrcEmpty) Error() string {
 
 func (ld LrcDisplay) ShowLyrics(timestamp uint64) (string, error) {
 	emptyLyric := Lyric{}
-	if ld.lrc.lyric == nil {
+	if ld.lrc.lyrics == nil {
 		return "", LrcEmpty{}
 	}
 	lyric, index, err := ld.lrc.GetLyricfromTimestamp(timestamp)
@@ -46,17 +46,17 @@ func (ld LrcDisplay) ShowLyrics(timestamp uint64) (string, error) {
 		lB = index
 		lA = (int(ld.lookBehind) - lB) + lA
 	}
-	if index >= len(ld.lrc.lyric)-int(ld.lookAhead) {
-		lA = len(ld.lrc.lyric) - (index + 1)
+	if index >= len(ld.lrc.lyrics)-int(ld.lookAhead) {
+		lA = len(ld.lrc.lyrics) - (index + 1)
 		lB = (int(ld.lookAhead) - lA) + lB
 	}
 	if index == -1 {
 		lA, lB = int(ld.lookAhead)+int(ld.lookBehind)+1, 0
-		if lA > len(ld.lrc.lyric) {
-			lA = len(ld.lrc.lyric)
+		if lA > len(ld.lrc.lyrics) {
+			lA = len(ld.lrc.lyrics)
 		}
 	}
-	if len(ld.lrc.lyric) == 1 {
+	if len(ld.lrc.lyrics) == 1 {
 		lA, lB = 0, 0
 	}
 	if lB > 0 {
@@ -64,7 +64,13 @@ func (ld LrcDisplay) ShowLyrics(timestamp uint64) (string, error) {
 			if s < 0 {
 				continue
 			}
-			fmt.Fprintf(&final, "%v%v%v\n\n", DIM, ld.lrc.lyric[s].lyric, RESET)
+			fmt.Fprintf(
+				&final,
+				"%v%v%v\n\n",
+				DIM,
+				ld.lrc.lyrics[s].lyric,
+				RESET,
+			)
 		}
 	}
 	if lyric != emptyLyric {
@@ -72,10 +78,16 @@ func (ld LrcDisplay) ShowLyrics(timestamp uint64) (string, error) {
 	}
 	if lA > 0 {
 		for s := index + 1; s < index+lA+1; s++ {
-			if s >= len(ld.lrc.lyric) {
+			if s >= len(ld.lrc.lyrics) {
 				break
 			}
-			fmt.Fprintf(&final, "%v%v%v\n\n", DIM, ld.lrc.lyric[s].lyric, RESET)
+			fmt.Fprintf(
+				&final,
+				"%v%v%v\n\n",
+				DIM,
+				ld.lrc.lyrics[s].lyric,
+				RESET,
+			)
 		}
 	}
 	return final.String(), nil
@@ -104,7 +116,7 @@ func LrctextToLrc(text string) (Lrc, error) {
 			if err != nil {
 				return Lrc{}, err
 			}
-			lrc.lyric = append(lrc.lyric,
+			lrc.lyrics = append(lrc.lyrics,
 				Lyric{compareNum{timestampMs, timestampMs}, string(line[11:])})
 			continue
 		}
@@ -117,8 +129,8 @@ func LrctextToLrc(text string) (Lrc, error) {
 		if err != nil {
 			return Lrc{}, fmt.Errorf("%w, '%v'", err, nextLine)
 		}
-		lrc.lyric = append(
-			lrc.lyric,
+		lrc.lyrics = append(
+			lrc.lyrics,
 			Lyric{
 				compareNum{currLyricTimestamp, nextLyricTimestamp},
 				line[11:],
@@ -129,20 +141,20 @@ func LrctextToLrc(text string) (Lrc, error) {
 }
 
 func (lrc *Lrc) GetLyricfromTimestamp(timeMs uint64) (Lyric, int, error) {
-	if lrc.lyric == nil {
+	if lrc.lyrics == nil {
 		return Lyric{}, -1, LrcEmpty{}
 	}
-	isHalfWay := timeMs >= (lrc.lyric[len(lrc.lyric)-1].timestamps.upper / 2)
+	isHalfWay := timeMs >= (lrc.lyrics[len(lrc.lyrics)-1].timestamps.upper / 2)
 	if isHalfWay {
-		for i := len(lrc.lyric) - 1; i >= 0; i-- {
-			lyric := lrc.lyric[i]
+		for i := len(lrc.lyrics) - 1; i >= 0; i-- {
+			lyric := lrc.lyrics[i]
 			if lyric.timestamps.Between(timeMs) {
 				return lyric, i, nil
 			}
 		}
 	} else {
-		for i := 0; i < len(lrc.lyric); i++ {
-			lyric := lrc.lyric[i]
+		for i := 0; i < len(lrc.lyrics); i++ {
+			lyric := lrc.lyrics[i]
 			if lyric.timestamps.Between(timeMs) {
 				return lyric, i, nil
 			}
