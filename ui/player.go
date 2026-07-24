@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lg "charm.land/lipgloss/v2"
+	trun "github.com/muesli/reflow/truncate"
 )
 
 func ViewSong(currSelected, currPlaying bool, width int, song *Song) string {
@@ -42,10 +43,10 @@ func ViewSong(currSelected, currPlaying bool, width int, song *Song) string {
 		ending = " (paused)"
 	}
 	final := title + sep + artist + ending
-	if len(final) > width-1 {
-		diff := (len(final) - (width - 1)) + 2
-		r := len(title) - diff
-		final = title[:r] + "…" + sep + artist + ending
+	if lg.Width(final) > width-1 {
+		target := lg.Width(title) - (lg.Width(final) - (width - 1))
+		title = trun.StringWithTail(title, uint(target), "…")
+		final = title + sep + artist + ending
 	}
 	return final
 }
