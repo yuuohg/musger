@@ -21,19 +21,7 @@ import (
 )
 
 func remove[T any](slice []T, s int) []T {
-	if len(slice) == 0 {
-		return slice
-	}
-	if len(slice) == 1 {
-		return make([]T, 0)
-	}
-	if s == len(slice)-1 {
-		return slice[:len(slice)-1]
-	}
-	if s == 0 {
-		return slice[1:]
-	}
-	return append(slice[:s], slice[s+1:]...)
+	return slices.Delete(slice, s, s+1)
 }
 
 type MUGRFile struct {
