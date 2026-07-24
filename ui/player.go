@@ -176,11 +176,8 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "c":
 				{
-					if m.loop == RepeatOne {
-						m.loop = RepeatOnce
-					} else {
-						m.loop++
-					}
+					m.loop++
+					m.loop = m.loop % (RepeatOne + 1)
 				}
 			case "s":
 				{
