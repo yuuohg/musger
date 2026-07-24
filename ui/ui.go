@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,6 +54,7 @@ type Model struct {
 	height     int
 	width      int
 	loop       Loop
+	count      int64
 	err        error
 }
 
@@ -159,9 +161,21 @@ func handlePropertyChange(event MpvMsg, playState *PlayState) {
 	case "media-title":
 		{
 			if !playState.fromHash {
-				playState.nextTitle, ok = event.Data.(string)
-				if !ok {
+				nextTitle, ok := event.Data.(string)
+				if !ok || nextTitle == "" {
 					playState.nextTitle = ""
+					break
+				}
+				base := filepath.Base(playState.song.Path)
+				if nextTitle == base {
+					s := strings.FieldsFunc(
+						base,
+						func(r rune) bool { return r == '.' },
+					)
+					base = strings.Join(s[:len(s)-1], "")
+					playState.nextTitle = base
+				} else {
+					playState.nextTitle = nextTitle
 				}
 			}
 		}
@@ -329,6 +343,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 		switch m.loop {
 		case RepeatOne:
 			{
+				m.count++
 				m.playState.song = m.queue.Songs[m.queue.CurrSong].Load(m.client)
 			}
 		case RepeatAll:
@@ -339,7 +354,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 					m.err = err
 					break
 				}
-
+				m.count++
 				if m.queue.IsShuffled {
 					m.playState.song = m.queue.Songs[m.queue.ShuffledSongs[song]].Load(m.client)
 				} else {
@@ -356,7 +371,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 					m.err = err
 					break
 				}
-
+				m.count++
 				if m.queue.IsShuffled {
 					m.playState.song = m.queue.Songs[m.queue.ShuffledSongs[song]].Load(m.client)
 				} else {
@@ -364,7 +379,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	} else if msg.Event == "file-loaded" {
+	} else if msg.Event == "start-file" && msg.PlaylistEntryID == m.count {
 		m.playState.greenlit = true
 	}
 	return m, tea.Batch(waitForMpv(m.msgChan))

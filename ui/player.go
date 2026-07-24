@@ -138,6 +138,7 @@ func (m Model) Change(prev bool) Model {
 	} else {
 		m.playState.song = m.queue.Songs[song].Load(m.client)
 	}
+	m.count++
 	return m
 }
 

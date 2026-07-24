@@ -32,17 +32,17 @@ type MpvClient struct {
 }
 
 type MpvResponse struct {
-	Data            any     `json:"data,omitempty"`
-	Error           string  `json:"error,omitempty"`
-	FileError       string  `json:"file_error,omitempty"`
-	Event           string  `json:"event,omitempty"`
-	Reason          string  `json:"reason,omitempty"`
-	RequestID       int64   `json:"request_id,omitempty"`
-	Text            string  `json:"text,omitempty"`
-	Name            string  `json:"name,omitempty"`
-	Level           string  `json:"level,omitempty"`
-	Prefix          string  `json:"prefix,omitempty"`
-	PlaylistEntryID float64 `json:"playlist_entry_id,omitempty"`
+	Data            any    `json:"data,omitempty"`
+	Error           string `json:"error,omitempty"`
+	FileError       string `json:"file_error,omitempty"`
+	Event           string `json:"event,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	RequestID       int64  `json:"request_id,omitempty"`
+	Text            string `json:"text,omitempty"`
+	Name            string `json:"name,omitempty"`
+	Level           string `json:"level,omitempty"`
+	Prefix          string `json:"prefix,omitempty"`
+	PlaylistEntryID int64  `json:"playlist_entry_id,omitempty"`
 	originalJson    string
 }
 
