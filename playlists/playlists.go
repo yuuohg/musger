@@ -209,15 +209,10 @@ func (p *Playlist) RemoveNonAudioFiles() {
 	if len(p.Songs) == 0 {
 		return
 	}
-	removal := make([]int, 0)
-	for idx, song := range p.Songs {
-		if !song.isAudio() {
-			removal = append(removal, idx)
-		}
-	}
-	for i, idx := range removal {
-		p.Songs = remove(p.Songs, idx-i)
-	}
+	p.Songs = slices.DeleteFunc(
+		p.Songs,
+		func(song Song) bool { return !song.isAudio() },
+	)
 }
 
 func (p *Playlist) Next(wrap bool) (int, error) {
