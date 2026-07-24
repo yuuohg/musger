@@ -44,11 +44,11 @@ func ViewSong(currSelected, currPlaying bool, width int, song *Song) string {
 	}
 	final := title + sep + artist + ending
 	if lg.Width(final) > width-1 {
-		target := lg.Width(title) - (lg.Width(final) - (width - 1))
+		target := lg.Width(title) - (lg.Width(final) - (width - 3))
 		title = trun.StringWithTail(title, uint(target), "…")
 		final = title + sep + artist + ending
 	}
-	return final
+	return "- " + final
 }
 
 func CurrStateAsStr(
