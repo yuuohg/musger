@@ -218,7 +218,7 @@ func (ps *PlayState) GetTimePos() uint64 {
 
 func InitModel() (Model, chan struct{}, *MpvClient, error) {
 	Logf(BLUE, "Starting procesaes")
-	client, err := InitServer(GeneratePath(), GeneratePulsePath())
+	client, err := InitIpc(GeneratePath(), GeneratePulsePath())
 	if err != nil {
 		return Model{}, nil, nil, err
 	}

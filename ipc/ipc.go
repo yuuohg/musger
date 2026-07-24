@@ -1,19 +1,13 @@
 package ipc
 
 import (
-	"bufio"
-	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	. "musger/ansi"
-
-	"github.com/jfreymuth/pulse"
 )
 
 const (
@@ -50,67 +44,7 @@ type PactlInfo struct {
 	ServerString string `json:"server_string,omitempty"`
 }
 
-func (client *MpvClient) SendCommand(command string) {
-	fmt.Fprintln(client.conn, strings.TrimSpace(command))
-}
-
-func Loadfile(path string) string {
-	return `{"command":["loadfile","` + path + `"]}`
-}
-
-func ObserveProperty(property string) string {
-	return `{"command":["observe_property",1,"` + property + `"]}`
-}
-
-func TogglePlay(pause bool) string {
-	if pause {
-		return Play
-	} else {
-		return Pause
-	}
-}
-
-func (client *MpvClient) MpvReplies(
-	msgChan chan MpvResponse,
-	qc chan struct{},
-) {
-	scanner := bufio.NewScanner(client.conn)
-SCAN:
-	for scanner.Scan() {
-		select {
-		case _ = <-qc:
-			{
-				qc <- struct{}{}
-				break SCAN
-			}
-		default:
-			{
-				reply := scanner.Text()
-				var response MpvResponse
-				json.Unmarshal([]byte(reply), &response)
-				response.originalJson = reply
-				msgChan <- response
-			}
-		}
-	}
-	_ = scanner.Err()
-	qc <- struct{}{}
-}
-
-func (mpvc *MpvClient) Close() error {
-	err := mpvc.conn.Close()
-	if err != nil {
-		return err
-	}
-	err = os.Remove(mpvc.path)
-	if err != nil {
-		return err
-	}
-	mpvc.mpvCmd.Process.Kill()
-	return nil
-}
-
-func InitServer(path string, pulsePath string) (*MpvClient, error) {
+func InitIpc(path string, pulsePath string) (*MpvClient, error) {
 	var err error
 	ipcServerOption := fmt.Sprintf("--input-ipc-server=%v", path)
 	Logf(BLUE, "Socket: %v", path)
@@ -188,52 +122,4 @@ func InitServer(path string, pulsePath string) (*MpvClient, error) {
 
 func Logf(color, format string, a ...any) {
 	fmt.Printf(color+format+RESET+"\n", a...)
-}
-
-func (client *MpvClient) KillPulse() error {
-	pk := exec.Command("pulseaudio", "--kill")
-	pk.Run()
-	if PulseProcessAlive() {
-		k := exec.Command("pkill", "-9", "-f", "pulseaudio.*")
-		return k.Run()
-	}
-	return nil
-}
-
-func (client *MpvClient) UpdatePulsePath() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-	Logf(BLUE, "Finding server path")
-	cmd := exec.CommandContext(ctx, "pactl", "-f", "json", "info")
-	out, err := cmd.Output()
-	if err != nil {
-		return err
-	}
-	var s PactlInfo
-	json.Unmarshal(out, &s)
-	if s.ServerString != "" {
-		Logf(GREEN, "Found server path: %v", s.ServerString)
-		client.pulsePath = s.ServerString
-		return nil
-	}
-	return nil
-}
-
-func (client *MpvClient) PulseaudioIsDead() bool {
-	c, e := pulse.NewClient(
-		pulse.ClientServerString("unix:" + client.pulsePath),
-	)
-	if c != nil {
-		c.Close()
-	}
-	return e != nil
-}
-
-func PulseProcessAlive() bool {
-	c := exec.Command("pulseaudio", "--check")
-	r := c.Run()
-	if r != nil {
-		return false
-	}
-	return c.ProcessState.ExitCode() == 0
 }
