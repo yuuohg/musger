@@ -1,9 +1,11 @@
-package main
+package lyrics
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	. "musger/ansi"
 )
 
 type compareNum struct {

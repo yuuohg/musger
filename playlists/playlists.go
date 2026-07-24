@@ -1,4 +1,4 @@
-package main
+package playlists
 
 import (
 	"bytes"
@@ -12,6 +12,9 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	. "musger/ipc"
+	. "musger/lyrics"
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/zeebo/xxh3"
@@ -99,7 +102,7 @@ func (song *Song) Load(client *MpvClient) *Song {
 	if client.PulseaudioIsDead() {
 		client.KillPulse()
 	}
-	client.sendCommand(loadfile(song.Path))
+	client.SendCommand(Loadfile(song.Path))
 	return song
 }
 

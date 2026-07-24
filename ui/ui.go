@@ -1,13 +1,16 @@
-package main
+package ui
 
 import (
 	"fmt"
 	"math"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
+
+	. "musger/ansi"
+	. "musger/ipc"
+	. "musger/playlists"
 
 	fp "charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/progress"
@@ -197,125 +200,26 @@ func (ps *PlayState) GetTimePos() uint64 {
 	)
 }
 
-func ViewSong(currSelected, currPlaying bool, width int, song *Song) string {
-	title := "Unknown title"
-	artist := ""
-	var sep string
-	if len(song.Title) != 0 {
-		title = song.Title
-	} else if len(song.Path) != 0 {
-		base := filepath.Base(song.Path)
-		s := strings.FieldsFunc(base, func(r rune) bool { return r == '.' })
-		base = strings.Join(s[:len(s)-1], "")
-		if len(base) != 0 {
-			title = base
-		}
-	}
-	if len(song.Artist) != 0 {
-		artist = song.Artist
-		sep = " - "
-	} else if len(song.AlbumArtist) != 0 {
-		artist = song.AlbumArtist
-		sep = " - "
-	}
-	title = strings.TrimSpace(title)
-	artist = strings.TrimSpace(artist)
-	var ending string
-	if currPlaying {
-		ending = " (playing)"
-	} else if currSelected {
-		ending = " (paused)"
-	}
-	final := title + sep + artist + ending
-	if len(final) > width-1 {
-		diff := (len(final) - (width - 1)) + 3 + 1
-		final = title[:len(final)-diff] + "..." + sep + artist + ending
-	}
-	return final
-}
-
-func CurrStateAsStr(
-	width, lookAhead, lookBehind int, p *Playlist, ps PlayState,
-) string {
-	playlistView := make([]Song, 0, len(p.Songs))
-	for i := range len(p.ShuffledSongs) {
-		if p.IsShuffled {
-			playlistView = append(playlistView, p.Songs[p.ShuffledSongs[i]])
-		} else {
-			playlistView = append(playlistView, p.Songs[i])
-		}
-	}
-	if len(playlistView) == 0 {
-		return "No songs"
-	}
-	var final strings.Builder
-	lB, lA := lookBehind, lookAhead
-	if p.CurrSong < lookBehind {
-		lB = p.CurrSong
-		lA = (lookBehind - lB) + lA
-	}
-	if p.CurrSong >= len(playlistView)-lookAhead {
-		lA = len(playlistView) - (p.CurrSong + 1)
-		lB = (lookAhead - lA) + lB
-	}
-	if p.CurrSong == -1 {
-		lA, lB = lookAhead+lookBehind+1, 0
-		if lA > len(playlistView) {
-			lA = len(playlistView)
-		}
-	}
-	if len(playlistView) == 1 {
-		lA, lB = 0, 0
-	}
-	if lB > 0 {
-		for s := p.CurrSong - lB; s != p.CurrSong; s++ {
-			if s < 0 {
-				continue
-			}
-			fmt.Fprintln(
-				&final,
-				ViewSong(false, false, width, &playlistView[s]),
-			)
-		}
-	}
-	fmt.Fprintln(
-		&final,
-		ViewSong(true, !ps.pause, width, &playlistView[p.CurrSong]),
-	)
-	if lA > 0 {
-		for s := p.CurrSong + 1; s != p.CurrSong+lA+1; s++ {
-			if s >= len(playlistView) {
-				break
-			}
-			fmt.Fprintln(
-				&final,
-				ViewSong(false, false, width, &playlistView[s]),
-			)
-		}
-	}
-	return final.String()
-}
-
-func initModel() (Model, chan Empty, *MpvClient, error) {
-	logf(BLUE, "Starting procesaes")
+func InitModel() (Model, chan struct{}, *MpvClient, error) {
+	Logf(BLUE, "Starting procesaes")
 	client, err := InitServer(GeneratePath(), GeneratePulsePath())
 	if err != nil {
 		return Model{}, nil, nil, err
 	}
 	msgChan := make(chan MpvResponse, 50)
-	quitChan := make(chan Empty, 2)
-	go client.mpvReplies(msgChan, quitChan)
-	logf(BLUE, "Listening for mpv's replies")
-	client.sendCommand(observeProperty("pause"))
-	logf(BLUE, "Observing property: 'pause'")
-	client.sendCommand(observeProperty("path"))
-	logf(BLUE, "Observing property: 'path'")
-	client.sendCommand(observeProperty("media-title"))
-	logf(BLUE, "Observing property: 'media-title'")
-	client.sendCommand(observeProperty("duration/full"))
-	logf(BLUE, "Observing property: 'duration/full'")
-	client.sendCommand(observeProperty("time-pos/full"))
-	logf(BLUE, "Observing property: 'time-pos/full'")
+	quitChan := make(chan struct{}, 2)
+	go client.MpvReplies(msgChan, quitChan)
+	Logf(BLUE, "Listening for mpv's replies")
+	client.SendCommand(ObserveProperty("pause"))
+	Logf(BLUE, "Observing property: 'pause'")
+	client.SendCommand(ObserveProperty("path"))
+	Logf(BLUE, "Observing property: 'path'")
+	client.SendCommand(ObserveProperty("media-title"))
+	Logf(BLUE, "Observing property: 'media-title'")
+	client.SendCommand(ObserveProperty("duration/full"))
+	Logf(BLUE, "Observing property: 'duration/full'")
+	client.SendCommand(ObserveProperty("time-pos/full"))
+	Logf(BLUE, "Observing property: 'time-pos/full'")
 	filepicker := fp.New()
 	filepicker.DirAllowed = true
 	filepicker.FileAllowed = true
@@ -381,87 +285,9 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		{
-			switch msg.String() {
-			case "p", "space", " ":
-				{
-					if m.playState.fileName == "" && len(m.queue.Songs) != 0 {
-						m.playState.song = m.queue.Songs[m.queue.CurrSong].Load(m.client)
-						break
-					}
-					m.client.sendCommand(TogglePlay(m.playState.pause))
-				}
-			case "n", "f", "down":
-				{
-					song, err := m.queue.Next(true)
-					if err != nil {
-						m.err = err
-						break
-					}
-					if m.queue.IsShuffled {
-						m.playState.song = m.queue.Songs[m.queue.ShuffledSongs[song]].Load(m.client)
-					} else {
-						m.playState.song = m.queue.Songs[song].Load(m.client)
-					}
-				}
-			case "b", "up":
-				{
-					song, err := m.queue.Prev(true)
-					if err != nil {
-						m.err = err
-						break
-					}
-					if m.queue.IsShuffled {
-						m.playState.song = m.queue.Songs[m.queue.ShuffledSongs[song]].Load(m.client)
-					} else {
-						m.playState.song = m.queue.Songs[song].Load(m.client)
-					}
-				}
-			case "h", "left":
-				{
-					if m.playState.fileName != "" {
-						m.client.sendCommand(SeekBackwardFive)
-					}
-				}
-			case "l", "right":
-				{
-					if m.playState.fileName != "" {
-						m.client.sendCommand(SeekForwardFive)
-					}
-				}
-			case "c":
-				{
-					if m.loop == RepeatOne {
-						m.loop = RepeatOnce
-					} else {
-						m.loop++
-					}
-				}
-			case "s":
-				{
-					if !m.queue.IsShuffled {
-						m.queue.AllocateShuffle()
-						m.queue.ShufflePlaylist()
-					} else {
-						m.queue.CurrSong = m.queue.ShuffledSongs[m.queue.CurrSong]
-						m.queue.IsShuffled = false
-					}
-				}
-			}
-		}
-	}
-	if m.err != nil {
-		return m, tea.Batch(waitForMpv(m.msgChan), errorCmd())
-	}
-	return m, tea.Batch(waitForMpv(m.msgChan))
-}
-
 type (
 	MpvMsg      MpvResponse
-	ClearErrMsg Empty
+	ClearErrMsg struct{}
 )
 
 func waitForMpv(msgChan chan MpvResponse) tea.Cmd {
@@ -486,46 +312,6 @@ func (m Model) viewPickingMain() tea.View {
 		s.WriteString("\n\n")
 		s.WriteString(errStyle.Render(m.err.Error()))
 	}
-	v := tea.NewView(s.String())
-	v.AltScreen = true
-	return v
-}
-
-func (m Model) viewPlayer() tea.View {
-	var s strings.Builder
-	var progress float64 = 0
-	timePos := msToReadable(m.playState.GetTimePos())
-	duration := msToReadable(m.playState.durationMs)
-	if m.playState.durationMs != 0 {
-		progress = float64(
-			m.playState.GetTimePos(),
-		) / float64(
-			m.playState.durationMs,
-		)
-	}
-	titleStyle := lg.NewStyle().
-		Width(m.width).
-		Align(lg.Center).
-		Bold(true)
-	timePosStyle := lg.NewStyle().
-		Width(m.width - len(duration)).
-		Align(lg.Left)
-	var title, artist string
-	title = m.playState.nextTitle
-	if m.playState.song != nil {
-		artist = m.playState.song.Artist
-	}
-	s.WriteString(titleStyle.Render(title))
-	s.WriteString("\n")
-	s.WriteString(artist)
-	s.WriteString("\n")
-	s.WriteString(m.progress.ViewAs(progress))
-	fmt.Fprintf(&s, "\n%v%v\n", timePosStyle.Render(timePos), duration)
-	lines := strings.Count(s.String(), "\n")
-	h := m.height - lines + 5
-	s.WriteString("\n")
-	fmt.Fprintf(&s, "Queue, (%v): \n", m.loop.loop())
-	s.WriteString(CurrStateAsStr(m.width, h/2, h/2, &m.queue, m.playState))
 	v := tea.NewView(s.String())
 	v.AltScreen = true
 	return v
@@ -580,8 +366,6 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 		}
 	} else if msg.Event == "file-loaded" {
 		m.playState.greenlit = true
-	} else if msg.Event == "start-file" {
-		m.playState.greenlit = false
 	}
 	return m, tea.Batch(waitForMpv(m.msgChan))
 }

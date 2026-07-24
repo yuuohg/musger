@@ -1,4 +1,4 @@
-package main
+package ipc
 
 import (
 	"bufio"
@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	. "musger/ansi"
 
 	"github.com/jfreymuth/pulse"
 )
@@ -48,15 +50,15 @@ type PactlInfo struct {
 	ServerString string `json:"server_string,omitempty"`
 }
 
-func (client *MpvClient) sendCommand(command string) {
+func (client *MpvClient) SendCommand(command string) {
 	fmt.Fprintln(client.conn, strings.TrimSpace(command))
 }
 
-func loadfile(path string) string {
+func Loadfile(path string) string {
 	return `{"command":["loadfile","` + path + `"]}`
 }
 
-func observeProperty(property string) string {
+func ObserveProperty(property string) string {
 	return `{"command":["observe_property",1,"` + property + `"]}`
 }
 
@@ -68,14 +70,17 @@ func TogglePlay(pause bool) string {
 	}
 }
 
-func (client *MpvClient) mpvReplies(msgChan chan MpvResponse, qc chan Empty) {
+func (client *MpvClient) MpvReplies(
+	msgChan chan MpvResponse,
+	qc chan struct{},
+) {
 	scanner := bufio.NewScanner(client.conn)
 SCAN:
 	for scanner.Scan() {
 		select {
 		case _ = <-qc:
 			{
-				qc <- Nothing
+				qc <- struct{}{}
 				break SCAN
 			}
 		default:
@@ -89,7 +94,7 @@ SCAN:
 		}
 	}
 	_ = scanner.Err()
-	qc <- Nothing
+	qc <- struct{}{}
 }
 
 func (mpvc *MpvClient) Close() error {
@@ -108,9 +113,9 @@ func (mpvc *MpvClient) Close() error {
 func InitServer(path string, pulsePath string) (*MpvClient, error) {
 	var err error
 	ipcServerOption := fmt.Sprintf("--input-ipc-server=%v", path)
-	logf(BLUE, "Socket: %v", path)
+	Logf(BLUE, "Socket: %v", path)
 	if !PulseProcessAlive() {
-		logf(BLUE, "Pulseaudio not running, starting")
+		Logf(BLUE, "Pulseaudio not running, starting")
 		pulseSocketOption := fmt.Sprintf(
 			"module-native-protocol-unix socket=%v",
 			pulsePath,
@@ -133,7 +138,7 @@ func InitServer(path string, pulsePath string) (*MpvClient, error) {
 				string(o),
 			)
 		}
-		logf(GREEN, "Pulseaudio started")
+		Logf(GREEN, "Pulseaudio started")
 	}
 	cmd := exec.Command(
 		"mpv",
@@ -157,7 +162,7 @@ func InitServer(path string, pulsePath string) (*MpvClient, error) {
 		ipcServerOption,
 	)
 	err = cmd.Start()
-	logf(BLUE, "Starting mpv")
+	Logf(BLUE, "Starting mpv")
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't start mpv: %w", err)
 	}
@@ -177,11 +182,11 @@ func InitServer(path string, pulsePath string) (*MpvClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't connect to ipc socket: %w", err)
 	}
-	logf(GREEN, "mpv started, took %.2fs", float64(i)/1000)
+	Logf(GREEN, "mpv started, took %.2fs", float64(i)/1000)
 	return &MpvClient{path, conn, cmd, pulsePath}, nil
 }
 
-func logf(color, format string, a ...any) {
+func Logf(color, format string, a ...any) {
 	fmt.Printf(color+format+RESET+"\n", a...)
 }
 
@@ -198,7 +203,7 @@ func (client *MpvClient) KillPulse() error {
 func (client *MpvClient) UpdatePulsePath() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	logf(BLUE, "Finding server path")
+	Logf(BLUE, "Finding server path")
 	cmd := exec.CommandContext(ctx, "pactl", "-f", "json", "info")
 	out, err := cmd.Output()
 	if err != nil {
@@ -207,7 +212,7 @@ func (client *MpvClient) UpdatePulsePath() error {
 	var s PactlInfo
 	json.Unmarshal(out, &s)
 	if s.ServerString != "" {
-		logf(GREEN, "Found server path: %v", s.ServerString)
+		Logf(GREEN, "Found server path: %v", s.ServerString)
 		client.pulsePath = s.ServerString
 		return nil
 	}

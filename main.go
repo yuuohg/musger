@@ -3,15 +3,15 @@ package main
 import (
 	"log"
 
+	"musger/ui"
+
 	tea "charm.land/bubbletea/v2"
 )
 
-type Empty struct{}
-
-var Nothing = Empty{}
+var Nothing = struct{}{}
 
 func main() {
-	model, quitChan, c, err := initModel()
+	model, quitChan, c, err := ui.InitModel()
 	if err != nil {
 		log.Fatalf(
 			"%vError when trying to initalize mpv/pulseaudio: %v%v\n",
