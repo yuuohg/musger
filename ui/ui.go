@@ -206,6 +206,8 @@ func (ps *PlayState) GetTimePos() uint64 {
 	e := time.Time{}
 	if e.Equal(ps.lastTimePosCheck) {
 		return 0
+	} else if ps.pause {
+		return ps.timePosMs
 	}
 	return uint64(
 		time.Since(ps.lastTimePosCheck).Milliseconds() + int64(
