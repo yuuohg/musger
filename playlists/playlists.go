@@ -225,7 +225,7 @@ func (p *Playlist) Next(wrap bool) (int, error) {
 	if wrap && isAtEnd {
 		p.CurrSong = 0
 	} else if isAtEnd {
-		p.CurrSong = len(p.Songs)
+		p.CurrSong = len(p.Songs) - 1
 	}
 	return p.CurrSong, nil
 }
