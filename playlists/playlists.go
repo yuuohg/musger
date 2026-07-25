@@ -89,6 +89,7 @@ func (s *Song) isAudio() bool {
 func (song *Song) Load(client *MpvClient) *Song {
 	if client.PulseaudioIsDead() {
 		client.KillPulse()
+		StartPulse(client.PulsePath)
 	}
 	client.SendCommand(Loadfile(song.Path))
 	return song

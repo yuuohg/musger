@@ -20,7 +20,7 @@ func main() {
 			RESET,
 		)
 	}
-	c.UpdatePulsePath()
+	c.UpdatePulsePath(true)
 	p := tea.NewProgram(model)
 	p.Run()
 	quitChan <- Nothing

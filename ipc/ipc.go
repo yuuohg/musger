@@ -22,7 +22,7 @@ type MpvClient struct {
 	path      string
 	conn      net.Conn
 	mpvCmd    *exec.Cmd
-	pulsePath string
+	PulsePath string
 }
 
 type MpvResponse struct {
@@ -50,27 +50,9 @@ func InitIpc(path string, pulsePath string) (*MpvClient, error) {
 	Logf(BLUE, "Socket: %v", path)
 	if !PulseProcessAlive() {
 		Logf(BLUE, "Pulseaudio not running, starting")
-		pulseSocketOption := fmt.Sprintf(
-			"module-native-protocol-unix socket=%v",
-			pulsePath,
-		)
-		pulse := exec.Command(
-			"pulseaudio",
-			"--start",
-			"--exit-idle-time=-1",
-			"-L",
-			pulseSocketOption,
-		)
-		o, err := pulse.CombinedOutput()
+		err = StartPulse(pulsePath)
 		if err != nil {
-			return nil, fmt.Errorf("Couldn't start pulseaudio: %w", err)
-		}
-		if !pulse.ProcessState.Success() {
-			return nil, fmt.Errorf(
-				"Couldn't start pulseaudio:\nExit Code: %v\nOutput:\n%v\n",
-				pulse.ProcessState.ExitCode(),
-				string(o),
-			)
+			return nil, err
 		}
 		Logf(GREEN, "Pulseaudio started")
 	}
