@@ -226,7 +226,7 @@ func CurrStateAsStr(
 		&final,
 		ViewSong(
 			true,
-			!ps.pause && ps.fileName != "",
+			!ps.pause && len(ps.fileName) != 0,
 			width,
 			&playlistView[p.CurrSong],
 		),
