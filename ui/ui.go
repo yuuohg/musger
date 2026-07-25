@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -141,67 +140,6 @@ func msToReadable(ms uint64) string {
 	return s.String()
 }
 
-func handlePropertyChange(event MpvMsg, playState *PlayState) {
-	var ok bool
-	switch event.Name {
-	case "pause":
-		{
-			playState.pause, ok = event.Data.(bool)
-			if !ok {
-				return
-			}
-		}
-	case "path":
-		{
-			playState.fileName, ok = event.Data.(string)
-			if !ok {
-				playState.fileName = ""
-			}
-		}
-	case "media-title":
-		{
-			if !playState.fromHash {
-				nextTitle, ok := event.Data.(string)
-				if !ok || nextTitle == "" {
-					playState.nextTitle = ""
-					break
-				}
-				base := filepath.Base(playState.song.Path)
-				if nextTitle == base {
-					s := strings.FieldsFunc(
-						base,
-						func(r rune) bool { return r == '.' },
-					)
-					base = strings.Join(s[:len(s)-1], "")
-					playState.nextTitle = base
-				} else {
-					playState.nextTitle = nextTitle
-				}
-			}
-		}
-	case "duration/full":
-		{
-			durationSecs, ok := event.Data.(float64)
-			if !ok {
-				playState.durationMs = 0
-				return
-			}
-			playState.durationMs = secsToms(durationSecs)
-		}
-	case "time-pos/full":
-		{
-			timePos, ok := event.Data.(float64)
-			if !ok {
-				playState.timePosMs = 0
-				playState.lastTimePosCheck = time.Time{}
-				return
-			}
-			playState.timePosMs = secsToms(timePos)
-			playState.lastTimePosCheck = time.Now()
-		}
-	}
-}
-
 func (ps *PlayState) GetTimePos() uint64 {
 	e := time.Time{}
 	if e.Equal(ps.lastTimePosCheck) {
@@ -331,60 +269,6 @@ func (m Model) viewPickingMain() tea.View {
 	v := tea.NewView(s.String())
 	v.AltScreen = true
 	return v
-}
-
-func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
-	if msg.Event == "property-change" {
-		prevNT := m.playState.nextTitle
-		handlePropertyChange(msg, &m.playState)
-		if prevNT != m.playState.nextTitle && m.playState.greenlit &&
-			!m.playState.song.FromHash {
-			m.playState.song.Title = m.playState.nextTitle
-		}
-	} else if msg.Event == "end-file" && msg.Reason == "eof" {
-		switch m.loop {
-		case RepeatOne:
-			{
-				m.count++
-				m.playState.song = m.queue.Songs[m.queue.CurrSong].Load(m.client)
-			}
-		case RepeatAll:
-			{
-
-				song, err := m.queue.Next(true)
-				if err != nil {
-					m.err = err
-					break
-				}
-				m.count++
-				if m.queue.IsShuffled {
-					m.playState.song = m.queue.Songs[m.queue.ShuffledSongs[song]].Load(m.client)
-				} else {
-					m.playState.song = m.queue.Songs[song].Load(m.client)
-				}
-			}
-		case RepeatOnce:
-			{
-				if m.queue.CurrSong == len(m.queue.Songs)-1 {
-					break
-				}
-				song, err := m.queue.Next(true)
-				if err != nil {
-					m.err = err
-					break
-				}
-				m.count++
-				if m.queue.IsShuffled {
-					m.playState.song = m.queue.Songs[m.queue.ShuffledSongs[song]].Load(m.client)
-				} else {
-					m.playState.song = m.queue.Songs[song].Load(m.client)
-				}
-			}
-		}
-	} else if msg.Event == "start-file" && msg.PlaylistEntryID == m.count {
-		m.playState.greenlit = true
-	}
-	return m, tea.Batch(waitForMpv(m.msgChan))
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
