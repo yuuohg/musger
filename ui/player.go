@@ -329,10 +329,10 @@ func (m Model) viewPlayer() tea.View {
 	s.WriteString("\n")
 	s.WriteString(m.progress.ViewAs(progress))
 	fmt.Fprintf(&s, "\n%v%v\n", timePosStyle.Render(timePos), duration)
-	lines := strings.Count(s.String(), "\n")
-	h := m.height - lines + 5
 	s.WriteString("\n")
 	fmt.Fprintf(&s, "Queue, (%v): \n", m.loop.loop())
+	lines := strings.Count(s.String(), "\n")
+	h := m.height - lines
 	s.WriteString(CurrStateAsStr(m.width, h/2, h/2, &m.queue, m.playState))
 	v := tea.NewView(s.String())
 	v.AltScreen = true
