@@ -251,6 +251,7 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 				{
 					if m.playState.fileName == "" && len(m.queue.Songs) != 0 {
 						m.playState.song = m.queue.Songs[m.queue.CurrSong].Load(m.client)
+						m.count++
 						break
 					}
 					m.client.SendCommand(TogglePlay(m.playState.pause))
