@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 
+	"musger/ansi"
 	"musger/ipc"
 	"musger/ui"
 
@@ -16,9 +17,9 @@ func main() {
 	if err != nil {
 		log.Fatalf(
 			"%vError when trying to initalize mpv/pulseaudio: %v%v\n",
-			RED,
+			ansi.RED,
 			err.Error(),
-			RESET,
+			ansi.RESET,
 		)
 	}
 	retries := 5
@@ -30,8 +31,8 @@ func main() {
 		if retries == 0 {
 			log.Fatalf(
 				"%vCould not get pulseaudio path%v\n",
-				RED,
-				RESET,
+				ansi.RED,
+				ansi.RESET,
 			)
 		}
 		c.KillPulse()
