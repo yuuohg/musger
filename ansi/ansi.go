@@ -1,14 +1,21 @@
 package ansi
 
-const (
+import "strconv"
+
+var (
 	ESC     = "\x1b["
 	RESET   = ESC + "m"
-	BOLD    = ESC + "1" + "m"
-	DIM     = ESC + "2" + "m"
-	RED     = ESC + "31" + "m"
-	GREEN   = ESC + "32" + "m"
-	YELLOW  = ESC + "33" + "m"
-	BLUE    = ESC + "34" + "m"
-	MAGENTA = ESC + "35" + "m"
+	BOLD    = sgr(1)
+	DIM     = sgr(2)
+	INVERT  = sgr(7)
+	RED     = sgr(31)
+	GREEN   = sgr(32)
+	YELLOW  = sgr(33)
+	BLUE    = sgr(34)
+	MAGENTA = sgr(35)
 	CLEAR   = ESC + "H" + ESC + "2J" + ESC + "3J"
 )
+
+func sgr(num int64) string {
+	return ESC + strconv.FormatInt(num, 10) + "m"
+}
