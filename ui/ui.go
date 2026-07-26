@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	. "musger/ansi"
-	. "musger/ipc"
-	. "musger/playlists"
+	"musger/ansi"
+	"musger/ipc"
+	"musger/playlists"
 
 	fp "charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/progress"
@@ -30,7 +30,7 @@ const (
 )
 
 type PlayState struct {
-	song             *Song
+	song             *playlists.Song
 	pause            bool
 	durationMs       uint64
 	timePosMs        uint64
@@ -42,12 +42,12 @@ type PlayState struct {
 }
 
 type Model struct {
-	client     *MpvClient
-	msgChan    chan MpvResponse
+	client     *ipc.MpvClient
+	msgChan    chan ipc.MpvResponse
 	playState  PlayState
-	queue      Playlist
+	queue      playlists.Playlist
 	screen     Screen
-	playlists  []Playlist
+	playlists  []playlists.Playlist
 	filepicker fp.Model
 	progress   progress.Model
 	height     int
@@ -154,26 +154,26 @@ func (ps *PlayState) GetTimePos() uint64 {
 	)
 }
 
-func InitModel() (Model, chan struct{}, *MpvClient, error) {
-	Logf(BLUE, "Starting procesaes")
-	client, err := InitIpc(GeneratePath(), GeneratePulsePath())
+func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
+	ipc.Logf(ansi.BLUE, "Starting procesaes")
+	client, err := ipc.InitIpc(GeneratePath(), GeneratePulsePath())
 	if err != nil {
 		return Model{}, nil, nil, err
 	}
-	msgChan := make(chan MpvResponse, 50)
+	msgChan := make(chan ipc.MpvResponse, 50)
 	quitChan := make(chan struct{}, 2)
 	go client.MpvReplies(msgChan, quitChan)
-	Logf(BLUE, "Listening for mpv's replies")
-	client.SendCommand(ObserveProperty("pause"))
-	Logf(BLUE, "Observing property: 'pause'")
-	client.SendCommand(ObserveProperty("path"))
-	Logf(BLUE, "Observing property: 'path'")
-	client.SendCommand(ObserveProperty("media-title"))
-	Logf(BLUE, "Observing property: 'media-title'")
-	client.SendCommand(ObserveProperty("duration/full"))
-	Logf(BLUE, "Observing property: 'duration/full'")
-	client.SendCommand(ObserveProperty("time-pos/full"))
-	Logf(BLUE, "Observing property: 'time-pos/full'")
+	ipc.Logf(ansi.BLUE, "Listening for mpv's replies")
+	client.SendCommand(ipc.ObserveProperty("pause"))
+	ipc.Logf(ansi.BLUE, "Observing property: 'pause'")
+	client.SendCommand(ipc.ObserveProperty("path"))
+	ipc.Logf(ansi.BLUE, "Observing property: 'path'")
+	client.SendCommand(ipc.ObserveProperty("media-title"))
+	ipc.Logf(ansi.BLUE, "Observing property: 'media-title'")
+	client.SendCommand(ipc.ObserveProperty("duration/full"))
+	ipc.Logf(ansi.BLUE, "Observing property: 'duration/full'")
+	client.SendCommand(ipc.ObserveProperty("time-pos/full"))
+	ipc.Logf(ansi.BLUE, "Observing property: 'time-pos/full'")
 	filepicker := fp.New()
 	filepicker.DirAllowed = true
 	filepicker.FileAllowed = true
@@ -214,8 +214,8 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, errorCmd())
 	}
 	if selectionF.IsDir() {
-		var playlist Playlist
-		playlist, m.err = NewAD(selection)
+		var playlist playlists.Playlist
+		playlist, m.err = playlists.NewAD(selection)
 		if m.err != nil {
 			return m, tea.Batch(cmd, errorCmd())
 		}
@@ -229,7 +229,7 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.playlists = append(m.playlists, playlist)
 		m.queue = playlist
 	} else {
-		mug := MUGRFile{}
+		mug := playlists.MUGRFile{}
 		m.err = mug.Load(selection)
 		if m.err != nil {
 			return m, tea.Batch(cmd, errorCmd())
@@ -240,11 +240,11 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type (
-	MpvMsg      MpvResponse
+	MpvMsg      ipc.MpvResponse
 	ClearErrMsg struct{}
 )
 
-func waitForMpv(msgChan chan MpvResponse) tea.Cmd {
+func waitForMpv(msgChan chan ipc.MpvResponse) tea.Cmd {
 	return func() tea.Msg {
 		return MpvMsg(<-msgChan)
 	}

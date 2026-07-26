@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	. "musger/ansi"
+	"musger/ansi"
 )
 
 const (
@@ -47,14 +47,14 @@ type PactlInfo struct {
 func InitIpc(path string, pulsePath string) (*MpvClient, error) {
 	var err error
 	ipcServerOption := fmt.Sprintf("--input-ipc-server=%v", path)
-	Logf(BLUE, "Socket: %v", path)
+	Logf(ansi.BLUE, "Socket: %v", path)
 	if !PulseProcessAlive() {
-		Logf(BLUE, "Pulseaudio not running, starting")
+		Logf(ansi.BLUE, "Pulseaudio not running, starting")
 		err = StartPulse(pulsePath)
 		if err != nil {
 			return nil, err
 		}
-		Logf(GREEN, "Pulseaudio started")
+		Logf(ansi.GREEN, "Pulseaudio started")
 	}
 	cmd := exec.Command(
 		"mpv",
@@ -78,7 +78,7 @@ func InitIpc(path string, pulsePath string) (*MpvClient, error) {
 		ipcServerOption,
 	)
 	err = cmd.Start()
-	Logf(BLUE, "Starting mpv")
+	Logf(ansi.BLUE, "Starting mpv")
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't start mpv: %w", err)
 	}
@@ -98,10 +98,10 @@ func InitIpc(path string, pulsePath string) (*MpvClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Couldn't connect to ipc socket: %w", err)
 	}
-	Logf(GREEN, "mpv started, took %.2fs", float64(i)/1000)
+	Logf(ansi.GREEN, "mpv started, took %.2fs", float64(i)/1000)
 	return &MpvClient{path, conn, cmd, pulsePath}, nil
 }
 
 func Logf(color, format string, a ...any) {
-	fmt.Printf(color+format+RESET+"\n", a...)
+	fmt.Printf(color+format+ansi.RESET+"\n", a...)
 }

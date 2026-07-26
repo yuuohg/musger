@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	. "musger/ansi"
+	"musger/ansi"
 
 	"github.com/jfreymuth/pulse"
 )
@@ -52,7 +52,7 @@ func (client *MpvClient) UpdatePulsePath(log bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
 	if log {
-		Logf(BLUE, "Finding server path")
+		Logf(ansi.BLUE, "Finding server path")
 	}
 	cmd := exec.CommandContext(ctx, "pactl", "-f", "json", "info")
 	out, err := cmd.Output()
@@ -63,7 +63,7 @@ func (client *MpvClient) UpdatePulsePath(log bool) error {
 	json.Unmarshal(out, &s)
 	if s.ServerString != "" {
 		if log {
-			Logf(GREEN, "Found server path: %v", s.ServerString)
+			Logf(ansi.GREEN, "Found server path: %v", s.ServerString)
 		}
 		client.PulsePath = s.ServerString
 		return nil

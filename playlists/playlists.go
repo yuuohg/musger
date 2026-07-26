@@ -13,8 +13,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	. "musger/ipc"
-	. "musger/lyrics"
+	"musger/ipc"
+	"musger/lyrics"
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/zeebo/xxh3"
@@ -41,14 +41,15 @@ type SongMetadata struct {
 }
 
 type Song struct {
-	Path        string
-	Title       string
-	Artist      string
-	AlbumArtist string
-	Hash        strings.Builder
-	Lyricpath   string
-	Lrc         Lrc
-	FromHash    bool
+	Path         string
+	Title        string
+	Artist       string
+	AlbumArtist  string
+	Hash         strings.Builder
+	Lyricpath    string
+	Lrc          lyrics.Lrc
+	FromHash     bool
+	NonPathTitle bool
 }
 
 func (song *Song) HashAudio(hasher *xxh3.Hasher) error {
@@ -86,12 +87,12 @@ func (s *Song) isAudio() bool {
 	return false
 }
 
-func (song *Song) Load(client *MpvClient) *Song {
+func (song *Song) Load(client *ipc.MpvClient) *Song {
 	if client.PulseaudioIsDead() {
 		client.KillPulse()
-		StartPulse(client.PulsePath)
+		ipc.StartPulse(client.PulsePath)
 	}
-	client.SendCommand(Loadfile(song.Path))
+	client.SendCommand(ipc.Loadfile(song.Path))
 	return song
 }
 
@@ -107,7 +108,7 @@ func (song *Song) GetLyrics() error {
 	if err != nil {
 		return err
 	}
-	lrc, err := LrctextToLrc(string(text))
+	lrc, err := lyrics.LrctextToLrc(string(text))
 	if err != nil {
 		return err
 	}

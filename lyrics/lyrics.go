@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	. "musger/ansi"
+	"musger/ansi"
 )
 
 type compareNum struct {
@@ -69,14 +69,14 @@ func (ld LrcDisplay) ShowLyrics(timestamp uint64) (string, error) {
 			fmt.Fprintf(
 				&final,
 				"%v%v%v\n\n",
-				DIM,
+				ansi.DIM,
 				ld.lrc.lyrics[s].lyric,
-				RESET,
+				ansi.RESET,
 			)
 		}
 	}
 	if lyric != emptyLyric {
-		fmt.Fprintf(&final, "%v%v%v\n\n", BOLD, lyric.lyric, RESET)
+		fmt.Fprintf(&final, "%v%v%v\n\n", ansi.BOLD, lyric.lyric, ansi.RESET)
 	}
 	if lA > 0 {
 		for s := index + 1; s < index+lA+1; s++ {
@@ -86,9 +86,9 @@ func (ld LrcDisplay) ShowLyrics(timestamp uint64) (string, error) {
 			fmt.Fprintf(
 				&final,
 				"%v%v%v\n\n",
-				DIM,
+				ansi.DIM,
 				ld.lrc.lyrics[s].lyric,
-				RESET,
+				ansi.RESET,
 			)
 		}
 	}

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	. "musger/ipc"
-	. "musger/playlists"
+	"musger/ipc"
+	"musger/playlists"
 
 	tea "charm.land/bubbletea/v2"
 	lg "charm.land/lipgloss/v2"
@@ -155,7 +155,11 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(waitForMpv(m.msgChan))
 }
 
-func ViewSong(currSelected, currPlaying bool, width int, song *Song) string {
+func ViewSong(
+	currSelected, currPlaying bool,
+	width int,
+	song *playlists.Song,
+) string {
 	title := "Unknown title"
 	artist := ""
 	var sep string
@@ -194,9 +198,9 @@ func ViewSong(currSelected, currPlaying bool, width int, song *Song) string {
 }
 
 func CurrStateAsStr(
-	width, lookAhead, lookBehind int, p *Playlist, ps PlayState,
+	width, lookAhead, lookBehind int, p *playlists.Playlist, ps PlayState,
 ) string {
-	playlistView := make([]Song, 0, len(p.Songs))
+	playlistView := make([]playlists.Song, 0, len(p.Songs))
 	for i := range len(p.ShuffledSongs) {
 		if p.IsShuffled {
 			playlistView = append(playlistView, p.Songs[p.ShuffledSongs[i]])
@@ -254,7 +258,7 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.count++
 						break
 					}
-					m.client.SendCommand(TogglePlay(m.playState.pause))
+					m.client.SendCommand(ipc.TogglePlay(m.playState.pause))
 				}
 			case "n", "f", "down":
 				{
@@ -267,13 +271,13 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "h", "left":
 				{
 					if m.playState.fileName != "" {
-						m.client.SendCommand(SeekBackwardFive)
+						m.client.SendCommand(ipc.SeekBackwardFive)
 					}
 				}
 			case "l", "right":
 				{
 					if m.playState.fileName != "" {
-						m.client.SendCommand(SeekForwardFive)
+						m.client.SendCommand(ipc.SeekForwardFive)
 					}
 				}
 			case "c":
