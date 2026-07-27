@@ -5,14 +5,16 @@ import (
 	"log"
 	"testing"
 
-	"musger"
+	"musger/ipc"
+	"musger/playlists"
+	"musger/ui"
 
 	"github.com/zeebo/xxh3"
 )
 
 func BenchmarkHash(b *testing.B) {
 	h := xxh3.New()
-	s := main.Song{Path: "./audio/08 - Cadmium Colors.opus"}
+	s := playlists.Song{Path: "./audio/08 - Cadmium Colors.opus"}
 	for b.Loop() {
 		s.Hash.Reset()
 		s.HashAudio(h)
@@ -21,7 +23,7 @@ func BenchmarkHash(b *testing.B) {
 }
 
 func BenchmarkDead(b *testing.B) {
-	c, err := main.InitServer(main.GeneratePath(), main.GeneratePulsePath())
+	c, err := ipc.InitIpc(ui.GeneratePath(), ui.GeneratePulsePath())
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
@@ -33,7 +35,7 @@ func BenchmarkDead(b *testing.B) {
 }
 
 func BenchmarkShuffle(b *testing.B) {
-	play, err := main.NewAD("audio")
+	play, err := playlists.NewAD("audio")
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
