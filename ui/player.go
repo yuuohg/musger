@@ -156,7 +156,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 }
 
 func ViewSong(
-	currSelected, currPlaying bool,
+	currSelected bool,
 	width int,
 	song *playlists.Song,
 ) string {
@@ -182,19 +182,17 @@ func ViewSong(
 	}
 	title = strings.TrimSpace(title)
 	artist = strings.TrimSpace(artist)
-	var ending string
-	if currPlaying {
-		ending = " (playing)"
-	} else if currSelected {
-		ending = " (paused)"
+	var ending string = " "
+	if currSelected {
+		ending = "> "
 	}
-	final := title + sep + artist + ending
+	final := ending + title + sep + artist
 	if lg.Width(final) > width-1 {
 		target := lg.Width(title) - (lg.Width(final) - (width - 3))
 		title = trun.StringWithTail(title, uint(target), "…")
-		final = title + sep + artist + ending
+		final = ending + title + sep + artist
 	}
-	return "- " + final
+	return "-" + final
 }
 
 func CurrStateAsStr(
@@ -222,7 +220,7 @@ func CurrStateAsStr(
 		for s := p.CurrSong - lB; s != p.CurrSong; s++ {
 			fmt.Fprintln(
 				&final,
-				ViewSong(false, false, width, &playlistView[s]),
+				ViewSong(false, width, &playlistView[s]),
 			)
 		}
 	}
@@ -230,7 +228,6 @@ func CurrStateAsStr(
 		&final,
 		ViewSong(
 			true,
-			!ps.pause && len(ps.fileName) != 0,
 			width,
 			&playlistView[p.CurrSong],
 		),
@@ -239,7 +236,7 @@ func CurrStateAsStr(
 		for s := p.CurrSong + 1; s != p.CurrSong+lA+1; s++ {
 			fmt.Fprintln(
 				&final,
-				ViewSong(false, false, width, &playlistView[s]),
+				ViewSong(false, width, &playlistView[s]),
 			)
 		}
 	}
