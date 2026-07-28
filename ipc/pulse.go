@@ -49,7 +49,10 @@ func (client *MpvClient) KillPulse() error {
 }
 
 func (client *MpvClient) UpdatePulsePath(log bool) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Millisecond*250,
+	)
 	defer cancel()
 	if log {
 		Logf(ansi.BLUE, "Finding server path")
