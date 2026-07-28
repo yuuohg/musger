@@ -250,6 +250,10 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "p", "space", " ":
 				{
+					if m.client.PulseaudioIsDead() {
+						m.client.KillPulse()
+						ipc.StartPulse(m.client.PulsePath)
+					}
 					if m.playState.fileName == "" && len(m.queue.Songs) != 0 {
 						m.playState.song = m.queue.Songs[m.queue.CurrSong].Load(m.client)
 						m.count++
