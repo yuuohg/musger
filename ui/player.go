@@ -295,6 +295,10 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.queue.IsShuffled = false
 					}
 				}
+			case "z":
+				{
+					m.showQueue = !m.showQueue
+				}
 			}
 		}
 	}
@@ -319,26 +323,47 @@ func (m Model) viewPlayer() tea.View {
 	titleStyle := lg.NewStyle().
 		Width(m.width).
 		Align(lg.Center).
-		Bold(true)
+		Render
 	timePosStyle := lg.NewStyle().
 		Width(m.width - len(duration)).
-		Align(lg.Left)
+		Align(lg.Left).Render
 	var title, artist string
 	title = m.playState.nextTitle
 	if m.playState.song != nil {
 		artist = m.playState.song.Artist
 	}
-	s.WriteString(titleStyle.Render(title))
+	s.WriteString(titleStyle(title))
 	s.WriteString("\n")
 	s.WriteString(artist)
 	s.WriteString("\n")
 	s.WriteString(m.progress.ViewAs(progress))
-	fmt.Fprintf(&s, "\n%v%v\n", timePosStyle.Render(timePos), duration)
+	fmt.Fprintf(&s, "\n%v%v\n", timePosStyle(timePos), duration)
 	s.WriteString("\n")
-	fmt.Fprintf(&s, "Queue, (%v): \n", m.loop.loop())
-	lines := strings.Count(s.String(), "\n")
-	h := m.height - lines
-	s.WriteString(CurrStateAsStr(m.width, h/2, h/2, &m.queue, m.playState))
+	var play string = "paused"
+	var shuffled string
+	if !m.playState.pause && m.playState.song != nil &&
+		len(m.playState.song.Path) != 0 {
+		play = "playing"
+	}
+	if m.queue.IsShuffled {
+		shuffled = ", Shuffled"
+	}
+	if m.showQueue {
+		shuffled += ":"
+	}
+	fmt.Fprintf(
+		&s,
+		"%v songs, (%v, currently %v)%v\n",
+		len(m.queue.Songs),
+		m.loop.loop(),
+		play,
+		shuffled,
+	)
+	if m.showQueue {
+		lines := strings.Count(s.String(), "\n")
+		h := m.height - lines
+		s.WriteString(CurrStateAsStr(m.width, h/2, h/2, &m.queue, m.playState))
+	}
 	v := tea.NewView(s.String())
 	v.AltScreen = true
 	return v

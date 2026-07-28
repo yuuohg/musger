@@ -50,6 +50,7 @@ type Model struct {
 	playlists  []playlists.Playlist
 	filepicker fp.Model
 	progress   progress.Model
+	showQueue  bool
 	height     int
 	width      int
 	loop       Loop
@@ -193,6 +194,7 @@ func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
 		screen:     PickingMain,
 		filepicker: filepicker,
 		progress:   prog,
+		showQueue:  true,
 	}, quitChan, client, nil
 }
 
