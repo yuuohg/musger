@@ -182,17 +182,17 @@ func ViewSong(
 	}
 	title = strings.TrimSpace(title)
 	artist = strings.TrimSpace(artist)
-	var ending string = " "
+	var ending string = "   "
 	if currSelected {
-		ending = "> "
+		ending = "-> "
 	}
 	final := ending + title + sep + artist
 	if lg.Width(final) > width-1 {
-		target := lg.Width(title) - (lg.Width(final) - (width - 3))
+		target := lg.Width(title) - (lg.Width(final) - (width - 1))
 		title = trun.StringWithTail(title, uint(target), "…")
 		final = ending + title + sep + artist
 	}
-	return "-" + final
+	return final
 }
 
 func CurrStateAsStr(
