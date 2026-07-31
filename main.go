@@ -10,7 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-var Nothing = struct{}{}
+var nothing = struct{}{}
 
 func main() {
 	model, quitChan, c, err := ui.InitModel()
@@ -39,9 +39,9 @@ func main() {
 		ipc.StartPulse(ui.GeneratePulsePath())
 		retries--
 	}
-	p := tea.NewProgram(model)
-	p.Run()
-	quitChan <- Nothing
+	program := tea.NewProgram(model)
+	program.Run()
+	quitChan <- nothing
 	<-quitChan
 	c.Close()
 }
