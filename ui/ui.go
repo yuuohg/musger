@@ -269,7 +269,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		{
-			if msg.String() == "q" {
+			if msg.Mod == tea.ModCtrl && msg.Code == 'c' {
 				return m, tea.Quit
 			}
 		}
