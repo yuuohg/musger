@@ -44,6 +44,7 @@ type Song struct {
 	Path         string
 	Title        string
 	Artist       string
+	Album        string
 	AlbumArtist  string
 	Hash         strings.Builder
 	Lyricpath    string
@@ -99,6 +100,7 @@ func (song *Song) Load(client *ipc.MpvClient) *Song {
 func (song *Song) AddMetadata(metadata SongMetadata) {
 	song.Title = metadata.Title
 	song.Artist = metadata.Artist
+	song.Album = metadata.Album
 	song.AlbumArtist = metadata.AlbumArtist
 	song.Lyricpath = metadata.Lyrics
 }
