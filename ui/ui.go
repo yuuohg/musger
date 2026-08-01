@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"musger/ansi"
 	"musger/ipc"
 	"musger/playlists"
 
@@ -156,7 +155,6 @@ func (ps *PlayState) GetTimePos() uint64 {
 }
 
 func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
-	ipc.Logf(ansi.BLUE, "Starting procesaes")
 	client, err := ipc.InitIpc(GeneratePath(), GeneratePulsePath())
 	if err != nil {
 		return Model{}, nil, nil, err
@@ -164,17 +162,11 @@ func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
 	msgChan := make(chan ipc.MpvResponse, 50)
 	quitChan := make(chan struct{}, 2)
 	go client.MpvReplies(msgChan, quitChan)
-	ipc.Logf(ansi.BLUE, "Listening for mpv's replies")
 	client.SendCommand(ipc.ObserveProperty("pause"))
-	ipc.Logf(ansi.BLUE, "Observing property: 'pause'")
 	client.SendCommand(ipc.ObserveProperty("path"))
-	ipc.Logf(ansi.BLUE, "Observing property: 'path'")
 	client.SendCommand(ipc.ObserveProperty("media-title"))
-	ipc.Logf(ansi.BLUE, "Observing property: 'media-title'")
 	client.SendCommand(ipc.ObserveProperty("duration/full"))
-	ipc.Logf(ansi.BLUE, "Observing property: 'duration/full'")
 	client.SendCommand(ipc.ObserveProperty("time-pos/full"))
-	ipc.Logf(ansi.BLUE, "Observing property: 'time-pos/full'")
 	filepicker := fp.New()
 	filepicker.DirAllowed = true
 	filepicker.FileAllowed = true
