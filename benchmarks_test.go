@@ -43,3 +43,13 @@ func BenchmarkShuffle(b *testing.B) {
 		play.ShufflePlaylist()
 	}
 }
+
+func BenchmarkViewSong(b *testing.B) {
+	Song := playlists.Song{
+		Title:  "test",
+		Artist: "53ts",
+	}
+	for b.Loop() {
+		ui.ViewSong(true, 90, &Song)
+	}
+}
