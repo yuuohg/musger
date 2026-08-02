@@ -667,6 +667,7 @@ func (m Model) viewPlayer() tea.View {
 	// fmt.Fprintln(&s, "\n", artist)
 	s.WriteByte(NEWLINE)
 	s.WriteString(artist)
+	s.WriteByte(NEWLINE)
 	s.WriteString(m.progress.ViewAs(progress))
 	s.WriteByte(NEWLINE)
 	s.WriteString(timePos)
