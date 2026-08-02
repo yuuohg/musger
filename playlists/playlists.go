@@ -28,7 +28,7 @@ type MUGRFile struct {
 	Loop         int                     `json:"loop"`
 	SongMetadata map[string]SongMetadata `json:"song_metadata"`
 	Playlists    map[string][]string     `json:"playlists"`
-	Queue        []string                `json:"queue"`
+	Queue        int                     `json:"queue"`
 	LastPlayed   int                     `json:"last_played"`
 }
 
@@ -37,23 +37,35 @@ type SongMetadata struct {
 	Artist      string `json:"artist,omitempty"`
 	Album       string `json:"album,omitempty"`
 	AlbumArtist string `json:"album_artist,omitempty"`
-	Lyrics      string `json:"lyrics,omitempty"`
+	LyricPath   string `json:"lyrics,omitempty"`
 }
 
 type Song struct {
 	Path         string
 	Title        string
+	PathTitle    string
 	Artist       string
 	Album        string
 	AlbumArtist  string
-	Hash         strings.Builder
+	Hash         string
 	Lyricpath    string
 	Lrc          lyrics.Lrc
 	FromHash     bool
 	NonPathTitle bool
 }
 
-func (song *Song) HashAudio(hasher *xxh3.Hasher) error {
+func PathTitle(path string) string {
+	base := filepath.Base(path)
+	s := strings.FieldsFunc(base, func(r rune) bool { return r == '.' })
+	base = strings.Join(s[:len(s)-1], "")
+	if len(base) != 0 {
+		return base
+	}
+	return "Unknown title"
+}
+
+func (song *Song) HashAudio() error {
+	var hasher *xxh3.Hasher = xxh3.New()
 	file, err := os.Open(song.Path)
 	if err != nil {
 		return err
@@ -64,7 +76,7 @@ func (song *Song) HashAudio(hasher *xxh3.Hasher) error {
 		return err
 	}
 	io.Copy(hasher, file)
-	fmt.Fprintf(&song.Hash, "%v-%x", s.Size(), hasher.Sum128().Bytes())
+	song.Hash = fmt.Sprintf("%v-%x", s.Size(), hasher.Sum128().Bytes())
 	hasher.Reset()
 	return nil
 }
@@ -97,21 +109,33 @@ func (song *Song) Load(client *ipc.MpvClient) *Song {
 	return song
 }
 
-func (song *Song) AddMetadata(metadata SongMetadata) {
-	song.Title = metadata.Title
-	song.Artist = metadata.Artist
-	song.Album = metadata.Album
-	song.AlbumArtist = metadata.AlbumArtist
-	song.Lyricpath = metadata.Lyrics
+func (song *Song) MergeMetadata(metadata SongMetadata) {
+	if len(metadata.Title) > 0 {
+		song.Title = metadata.Title
+	}
+	if len(metadata.Artist) > 0 {
+		song.Artist = metadata.Artist
+	}
+	if len(metadata.Album) > 0 {
+		song.Album = metadata.Album
+	}
+	if len(metadata.AlbumArtist) > 0 {
+		song.AlbumArtist = metadata.AlbumArtist
+	}
+	if len(metadata.LyricPath) > 0 {
+		song.Lyricpath = metadata.LyricPath
+	}
 }
 
 func (song *Song) GetLyrics() error {
 	text, err := ReadUTF8File(song.Lyricpath)
 	if err != nil {
+		song.Lyricpath = ""
 		return err
 	}
 	lrc, err := lyrics.LrctextToLrc(string(text))
 	if err != nil {
+		song.Lyricpath = ""
 		return err
 	}
 	song.Lrc = lrc
@@ -219,6 +243,18 @@ func (p *Playlist) RemoveNonAudioFiles() {
 	)
 }
 
+func (p *Playlist) AddPathTitle() {
+	if len(p.Songs) == 0 {
+		return
+	}
+	for idx := range len(p.Songs) {
+		if len(p.Songs[idx].PathTitle) != 0 {
+			continue
+		}
+		p.Songs[idx].PathTitle = PathTitle(p.Songs[idx].Path)
+	}
+}
+
 func (p *Playlist) Next(wrap bool) (int, error) {
 	if len(p.Songs) == 0 {
 		return 0, fmt.Errorf("Empty playlist")
@@ -262,9 +298,8 @@ func (p *Playlist) HashAudioFiles() {
 	if len(p.Songs) == 0 {
 		return
 	}
-	hasher := xxh3.New()
 	for _, song := range p.Songs {
-		song.HashAudio(hasher)
+		song.HashAudio()
 	}
 }
 
@@ -356,11 +391,11 @@ func NewAD(dir string) (Playlist, error) {
 	audioDir.Songs = files
 	audioDir.RemoveNonAudioFiles()
 	audioDir.ExpandToAbsPath()
+	audioDir.AddPathTitle()
+	audioDir.AllocateShuffle()
 	err = os.Chdir("..")
 	if err != nil {
 		return Playlist{}, err
 	}
-	audioDir.ShuffledSongs = make([]int, len(audioDir.Songs))
-	go audioDir.HashAudioFiles()
 	return audioDir, nil
 }

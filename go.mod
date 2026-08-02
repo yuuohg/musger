@@ -8,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/jfreymuth/pulse v0.1.2
-	github.com/muesli/reflow v0.3.0
+	github.com/mattn/go-runewidth v0.0.27
 	github.com/zeebo/xxh3 v1.1.0
 )
 
@@ -26,7 +26,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
-	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect

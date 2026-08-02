@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,8 +14,17 @@ import (
 
 	fp "charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/progress"
+	txt "charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lg "charm.land/lipgloss/v2"
+)
+
+var (
+	border      lg.Border = lg.RoundedBorder()
+	borderStyle           = lg.NewStyle().BorderStyle(border).Render
+	padding               = lg.NewStyle().Padding(0, 1, 0, 1).Render
+	errStyle              = lg.NewStyle().Bold(true).Foreground(lg.Red).Render
+	titleStyle            = lg.NewStyle().Width(80).Align(lg.Center).Render
 )
 
 type Screen int
@@ -41,20 +51,26 @@ type PlayState struct {
 }
 
 type Model struct {
-	client     *ipc.MpvClient
-	msgChan    chan ipc.MpvResponse
-	playState  PlayState
-	queue      playlists.Playlist
-	screen     Screen
-	playlists  []playlists.Playlist
-	filepicker fp.Model
-	progress   progress.Model
-	showQueue  bool
-	height     int
-	width      int
-	loop       Loop
-	count      int64
-	err        error
+	client      *ipc.MpvClient
+	msgChan     chan ipc.MpvResponse
+	playState   PlayState
+	queue       int
+	screen      Screen
+	playlists   []playlists.Playlist
+	filepicker  fp.Model
+	progress    progress.Model
+	ti          txt.Model
+	menuSong    *playlists.Song
+	loop        Loop
+	ids         map[int]*playlists.Playlist
+	tags        map[string]playlists.SongMetadata
+	availableId int
+	showQueue   bool
+	menuPos     int
+	height      int
+	width       int
+	count       int64
+	err         error
 }
 
 type Loop int
@@ -115,28 +131,28 @@ func secsToms(s float64) uint64 {
 	return uint64(math.Round(s * 1000))
 }
 
-func msToReadable(ms uint64) string {
+func MstoReadable(ms uint64) string {
 	var s strings.Builder
 	secs := float64(ms) / 1000
-	hours := math.Trunc(secs / 3600)
-	mins := math.Trunc(math.Mod(secs, 3600) / 60)
-	sec := math.Trunc(math.Mod(math.Mod(math.Mod(secs, 3600), 60), 60))
+	hours := int(secs / 3600)
+	mins := int(math.Mod(secs, 3600) / 60)
+	sec := int(math.Mod(math.Mod(math.Mod(secs, 3600), 60), 60))
 	if hours > 0 {
 		if hours < 10 {
-			s.WriteString("0")
+			s.WriteByte('0')
 		}
-		fmt.Fprint(&s, hours)
-		s.WriteString(":")
+		s.WriteString(strconv.Itoa(hours))
+		s.WriteByte(':')
 	}
 	if mins < 10 {
-		s.WriteString("0")
+		s.WriteByte('0')
 	}
-	fmt.Fprint(&s, mins)
-	s.WriteString(":")
+	s.WriteString(strconv.Itoa(mins))
+	s.WriteByte(':')
 	if sec < 10 {
-		s.WriteString("0")
+		s.WriteByte('0')
 	}
-	fmt.Fprint(&s, sec)
+	s.WriteString(strconv.Itoa(sec))
 	return s.String()
 }
 
@@ -171,7 +187,6 @@ func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
 	filepicker.DirAllowed = true
 	filepicker.FileAllowed = true
 	filepicker.ShowHidden = true
-	filepicker.ShowSize = true
 	filepicker.KeyMap = fp.DefaultKeyMap()
 	filepicker.Styles = fp.DefaultStyles()
 	prog := progress.New()
@@ -180,13 +195,21 @@ func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
 	prog.Full = '━'
 	prog.Empty = '━'
 	prog.ShowPercentage = false
+	textInput := txt.New()
+	textInput.SetWidth(45)
+	ids := make(map[int]*playlists.Playlist)
+	tags := make(map[string]playlists.SongMetadata)
 	return Model{
 		client:     client,
 		msgChan:    msgChan,
 		screen:     PickingMain,
 		filepicker: filepicker,
 		progress:   prog,
+		ti:         textInput,
 		showQueue:  true,
+		menuPos:    NoMenu,
+		ids:        ids,
+		tags:       tags,
 	}, quitChan, client, nil
 }
 
@@ -221,7 +244,7 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmd, errorCmd())
 		}
 		m.playlists = append(m.playlists, playlist)
-		m.queue = playlist
+		m.queue = 0
 	} else {
 		mug := playlists.MUGRFile{}
 		m.err = mug.Load(selection)
@@ -234,7 +257,12 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type (
-	MpvMsg      ipc.MpvResponse
+	MpvMsg  ipc.MpvResponse
+	hashMsg struct {
+		id   int
+		idx  int
+		hash string
+	}
 	ClearErrMsg struct{}
 )
 
@@ -251,14 +279,38 @@ func errorCmd() tea.Cmd {
 	)
 }
 
+func hashSong(
+	playlist *playlists.Playlist,
+	idx int,
+	id int,
+) tea.Cmd {
+	song := playlist.Songs[idx]
+	if len(song.Hash) != 0 {
+		return func() tea.Msg {
+			return hashMsg{
+				id:   id,
+				idx:  idx,
+				hash: song.Hash,
+			}
+		}
+	}
+	song.HashAudio()
+	return func() tea.Msg {
+		return hashMsg{
+			id:   id,
+			idx:  idx,
+			hash: song.Hash,
+		}
+	}
+}
+
 func (m Model) viewPickingMain() tea.View {
 	var s strings.Builder
 	s.WriteString("Pick a directory with music or a valid json file\n\n")
 	s.WriteString(m.filepicker.View())
 	if m.err != nil {
-		errStyle := lg.NewStyle().Bold(true).Foreground(lg.Red)
 		s.WriteString("\n\n")
-		s.WriteString(errStyle.Render(m.err.Error()))
+		s.WriteString(errStyle(m.err.Error()))
 	}
 	v := tea.NewView(s.String())
 	v.AltScreen = true
@@ -281,11 +333,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		{
 			m.height, m.width = msg.Height, msg.Width
 			m.progress.SetWidth(m.width)
+			m.ti.SetWidth(int(float64(m.width) * 0.75))
+			titleStyle = lg.NewStyle().Width(m.width).Align(lg.Center).Render
 		}
 	case ClearErrMsg:
 		{
 			m.err = nil
 			return m, tea.Batch(waitForMpv(m.msgChan))
+		}
+	case hashMsg:
+		{
+			playlist, ok := m.ids[msg.id]
+			if !ok {
+				break
+			}
+			playlist.Songs[msg.idx].Hash = msg.hash
+			metadata, ok := m.tags[playlist.Songs[msg.idx].Hash]
+			if ok {
+				playlist.Songs[msg.idx].MergeMetadata(metadata)
+			}
+			if msg.idx == len(playlist.Songs)-1 {
+				delete(m.ids, msg.id)
+				return m, nil
+			}
+			return m, tea.Batch(hashSong(playlist, msg.idx+1, msg.id))
 		}
 	}
 	switch m.screen {

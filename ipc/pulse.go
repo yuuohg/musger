@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
 	"os/exec"
 	"time"
 
 	"musger/ansi"
 
-	"github.com/jfreymuth/pulse"
+	"github.com/jfreymuth/pulse/proto"
 )
 
 func StartPulse(pulsePath string) error {
@@ -75,13 +77,40 @@ func (client *MpvClient) UpdatePulsePath(log bool) error {
 }
 
 func (client *MpvClient) PulseaudioIsDead() bool {
-	c, e := pulse.NewClient(
-		pulse.ClientServerString("unix:" + client.PulsePath),
-	)
-	if c != nil {
-		c.Close()
+	c := &proto.Client{}
+	c.SetTimeout(time.Millisecond * 10)
+	conn, err := net.Dial("unix", client.PulsePath)
+	if err != nil {
+		return true
 	}
-	return e != nil
+	c.Open(conn)
+
+	cookiePath := os.Getenv("HOME") + "/.config/pulse/cookie"
+	if path, ok := os.LookupEnv("PULSE_COOKIE"); ok {
+		cookiePath = path
+	}
+
+	cookie, err := os.ReadFile(cookiePath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			conn.Close()
+			return true
+		}
+		cookie = make([]byte, 256)
+	}
+	var authReply proto.AuthReply
+	err = c.Request(
+		&proto.Auth{
+			Version: c.Version(),
+			Cookie:  cookie,
+		}, &authReply,
+	)
+	if err != nil {
+		conn.Close()
+		return true
+	}
+	conn.Close()
+	return false
 }
 
 func PulseProcessAlive() bool {
