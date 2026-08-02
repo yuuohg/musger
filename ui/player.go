@@ -63,24 +63,28 @@ func displayMenu(c int) string {
 const NEWLINE byte = 10
 
 func (m Model) Change(prev bool) Model {
+	queue := m.GetQueue()
+	if queue == nil {
+		return m
+	}
 	var song int
 	var err error
 	m.playState.greenlit = false
 	if prev {
-		song, err = m.playlists[m.queue].Prev(true)
+		song, err = queue.Prev(true)
 	} else {
-		song, err = m.playlists[m.queue].Next(true)
+		song, err = queue.Next(true)
 	}
 	if err != nil {
 		m.err = err
 		return m
 	}
-	if m.playlists[m.queue].IsShuffled {
-		m.playState.song = m.playlists[m.queue].Songs[m.playlists[m.queue].ShuffledSongs[song]].Load(
+	if queue.IsShuffled {
+		m.playState.song = queue.Songs[queue.ShuffledSongs[song]].Load(
 			m.client,
 		)
 	} else {
-		m.playState.song = m.playlists[m.queue].Songs[song].Load(m.client)
+		m.playState.song = queue.Songs[song].Load(m.client)
 	}
 	m.count++
 	return m
@@ -169,11 +173,15 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 			m.playState.song.Title = m.playState.nextTitle
 		}
 	} else if msg.Event == "end-file" && msg.Reason == "eof" {
+		queue := m.GetQueue()
+		if queue == nil {
+			return m, tea.Batch(waitForMpv(m.msgChan))
+		}
 		switch m.loop {
 		case RepeatOne:
 			{
 				m.count++
-				m.playState.song = m.playlists[m.queue].Songs[m.playlists[m.queue].CurrSong].Load(m.client)
+				m.playState.song = queue.Songs[queue.CurrSong].Load(m.client)
 			}
 		case RepeatAll:
 			{
@@ -181,7 +189,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 			}
 		case RepeatOnce:
 			{
-				isAtEnd := m.playlists[m.queue].CurrSong == len(m.playlists[m.queue].Songs)-1
+				isAtEnd := queue.CurrSong == len(queue.Songs)-1
 				if isAtEnd {
 					break
 				}
@@ -410,6 +418,7 @@ func (m *Model) handleTextInput(msg tea.Msg) tea.Cmd {
 }
 
 func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
+	queue := m.GetQueue()
 	switch msg.Keystroke() {
 	case "p", "space", " ", "enter":
 		{
@@ -428,8 +437,8 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				ipc.StartPulse(m.client.PulsePath)
 			}
 			if m.playState.fileName == "" &&
-				len(m.playlists[m.queue].Songs) != 0 {
-				m.playState.song = m.playlists[m.queue].Songs[m.playlists[m.queue].CurrSong].Load(
+				len(queue.Songs) != 0 {
+				m.playState.song = queue.Songs[queue.CurrSong].Load(
 					m.client,
 				)
 				m.count++
@@ -483,12 +492,12 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 		}
 	case "s":
 		{
-			if !m.playlists[m.queue].IsShuffled {
-				m.playlists[m.queue].AllocateShuffle()
-				m.playlists[m.queue].ShufflePlaylist()
+			if !queue.IsShuffled {
+				queue.AllocateShuffle()
+				queue.ShufflePlaylist()
 			} else {
-				m.playlists[m.queue].CurrSong = m.playlists[m.queue].ShuffledSongs[m.playlists[m.queue].CurrSong]
-				m.playlists[m.queue].IsShuffled = false
+				queue.CurrSong = queue.ShuffledSongs[queue.CurrSong]
+				queue.IsShuffled = false
 			}
 		}
 	case "z":
@@ -497,13 +506,13 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 		}
 	case "i", "e":
 		{
-			if len(m.playlists[m.queue].Songs) == 0 || m.menuPos != NoMenu {
+			if len(queue.Songs) == 0 || m.menuPos != NoMenu {
 				break
 			}
-			if m.playlists[m.queue].IsShuffled {
-				m.menuSong = &m.playlists[m.queue].Songs[m.playlists[m.queue].ShuffledSongs[m.playlists[m.queue].CurrSong]]
+			if queue.IsShuffled {
+				m.menuSong = &queue.Songs[queue.ShuffledSongs[queue.CurrSong]]
 			} else {
-				m.menuSong = &m.playlists[m.queue].Songs[m.playlists[m.queue].CurrSong]
+				m.menuSong = &queue.Songs[queue.CurrSong]
 			}
 			m.menuPos = 0
 		}
@@ -645,13 +654,17 @@ func (m Model) viewPlayer() tea.View {
 			m.playState.durationMs,
 		)
 	}
+	queue := m.GetQueue()
+	if queue == nil {
+		return tea.NewView("")
+	}
 	var play string = "paused"
 	var shuffled string
 	if !m.playState.pause && m.playState.song != nil &&
 		len(m.playState.song.Path) != 0 {
 		play = "playing"
 	}
-	if m.playlists[m.queue].IsShuffled {
+	if queue.IsShuffled {
 		shuffled = ", Shuffled"
 	}
 	if m.showQueue {
@@ -664,7 +677,6 @@ func (m Model) viewPlayer() tea.View {
 		artist = m.playState.song.Artist
 	}
 	s.WriteString(titleStyle(title))
-	// fmt.Fprintln(&s, "\n", artist)
 	s.WriteByte(NEWLINE)
 	s.WriteString(artist)
 	s.WriteByte(NEWLINE)
@@ -675,15 +687,7 @@ func (m Model) viewPlayer() tea.View {
 	s.WriteString(duration)
 	s.WriteByte(NEWLINE)
 	s.WriteByte(NEWLINE)
-	// fmt.Fprintf(
-	// 	&s,
-	// 	"%v songs, (%v, currently %v)%v\n",
-	// 	len(m.playlists[m.queue].Songs),
-	// 	m.loop.loop(),
-	// 	play,
-	// 	shuffled,
-	// )
-	s.WriteString(strconv.Itoa(len(m.playlists[m.queue].Songs)))
+	s.WriteString(strconv.Itoa(len(queue.Songs)))
 	s.WriteString(" songs, (")
 	s.WriteString(m.loop.loop())
 	s.WriteString(", currently ")
@@ -699,7 +703,7 @@ func (m Model) viewPlayer() tea.View {
 				m.width,
 				h/2,
 				h/2,
-				&m.playlists[m.queue],
+				queue,
 			),
 		)
 	}

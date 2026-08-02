@@ -73,6 +73,19 @@ type Model struct {
 	err         error
 }
 
+func (m *Model) GetQueue() *playlists.Playlist {
+	if len(m.playlists) == 0 {
+		return nil
+	}
+	if m.queue < 0 {
+		return nil
+	}
+	if m.queue > len(m.playlists)-1 {
+		return nil
+	}
+	return &m.playlists[m.queue]
+}
+
 type Loop int
 
 const (
