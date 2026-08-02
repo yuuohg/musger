@@ -696,7 +696,7 @@ func (m Model) viewPlayer() tea.View {
 	s.WriteString(shuffled)
 	s.WriteByte(NEWLINE)
 	if m.showQueue {
-		lines := strings.Count(s.String(), "\n")
+		lines := 6 // 6 newlines written before
 		h := m.height - lines
 		s.WriteString(
 			CurrStateAsStr(
