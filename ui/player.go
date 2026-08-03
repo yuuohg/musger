@@ -232,17 +232,17 @@ func ViewSong(
 	}
 	title = strings.TrimSpace(title)
 	artist = strings.TrimSpace(artist)
-	var ending string = "   "
+	var arrow string = "   "
 	if currSelected {
-		ending = "-> "
+		arrow = "-> "
 	}
-	final := ending + title + sep + artist
+	final := arrow + title + sep + artist
 	if len(final) > width-1 {
 		fWidth := rw.StringWidth(final)
 		if fWidth > width-1 {
 			target := rw.StringWidth(title) - (fWidth - (width - 1))
 			title = rw.Truncate(title, target, "…")
-			final = ending + title + sep + artist
+			final = arrow + title + sep + artist
 		}
 	}
 	return final
