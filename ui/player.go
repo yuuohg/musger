@@ -18,6 +18,8 @@ import (
 
 type Metadata int
 
+const NEWLINE byte = 10
+
 const (
 	Title Metadata = iota
 	Artist
@@ -35,32 +37,45 @@ const (
 	MLyricPath   int = 9
 )
 
-var items [5]string = [5]string{
-	"Title",
-	"Artist",
-	"Album",
-	"Album Artist",
-	"Lyric File",
-}
-
-func displayMenu(c int) string {
+func DisplayMenu(c int) string {
 	var s strings.Builder
-	for idx, item := range items {
-		if idx == c {
-			s.WriteString("> ")
-		} else {
-			s.WriteString("  ")
-		}
-		s.WriteString(item)
-		if idx == len(items)-1 {
-			continue
-		}
-		s.WriteString("\n")
+	s.Grow(52)
+	if c == 0 {
+		s.WriteString("> ")
+	} else {
+		s.WriteString("  ")
 	}
+	s.WriteString("Title")
+	s.WriteString("\n")
+	if c == 1 {
+		s.WriteString("> ")
+	} else {
+		s.WriteString("  ")
+	}
+	s.WriteString("Artist")
+	s.WriteString("\n")
+	if c == 2 {
+		s.WriteString("> ")
+	} else {
+		s.WriteString("  ")
+	}
+	s.WriteString("Album")
+	s.WriteString("\n")
+	if c == 3 {
+		s.WriteString("> ")
+	} else {
+		s.WriteString("  ")
+	}
+	s.WriteString("Album Artist")
+	s.WriteString("\n")
+	if c == 4 {
+		s.WriteString("> ")
+	} else {
+		s.WriteString("  ")
+	}
+	s.WriteString("Lyric File")
 	return s.String()
 }
-
-const NEWLINE byte = 10
 
 func (m Model) Change(prev bool) Model {
 	queue := m.GetQueue()
@@ -590,8 +605,19 @@ func (m *Model) setupFilepicker() {
 	m.filepicker.Styles = fp.DefaultStyles()
 }
 
+func TruncateTitle(title string, width int) string {
+	target := width - 2
+	if len(title) >= target {
+		actualWidth := rw.StringWidth(title)
+		if actualWidth >= target {
+			return rw.Truncate(title, target, "…")
+		}
+	}
+	return title
+}
+
 func (m *Model) viewMenu(compositor *lg.Compositor) {
-	content := displayMenu(m.menuPos)
+	content := DisplayMenu(m.menuPos)
 	styledContent := borderStyle(padding(content))
 	menu := lg.NewLayer(styledContent).Z(1)
 	compositor.AddLayers(
@@ -657,6 +683,7 @@ func (m Model) viewPlayer() tea.View {
 		title = m.playState.song.Title
 		artist = m.playState.song.Artist
 	}
+	title = TruncateTitle(title, m.width)
 	s.WriteString(titleStyle(title))
 	s.WriteByte(NEWLINE)
 	s.WriteString(artist)

@@ -92,3 +92,9 @@ func BenchmarkMstoRead(b *testing.B) {
 		ui.MstoReadable(837834)
 	}
 }
+
+func BenchmarkDM(b *testing.B) {
+	for b.Loop() {
+		ui.DisplayMenu(3)
+	}
+}
