@@ -86,13 +86,13 @@ func InitIpc(path string, pulsePath string) (*MpvClient, error) {
 		return nil, fmt.Errorf("mpv did not start")
 	}
 	var i uint
-	for range 1000 {
-		i += 25
+	for range 2500 {
+		i += 10
 		_, err := os.Stat(path)
 		if err == nil {
 			break
 		}
-		time.Sleep(time.Millisecond * 25)
+		time.Sleep(time.Millisecond * 10)
 	}
 	conn, err := net.Dial("unix", path)
 	if err != nil {
