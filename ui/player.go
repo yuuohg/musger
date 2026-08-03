@@ -90,25 +90,6 @@ func (m Model) Change(prev bool) Model {
 	return m
 }
 
-// function below is ai-generated
-func calculateLaLb(
-	lookAhead, lookBehind, arrayLen, currentIdx int,
-) (lB, lA int) {
-	if arrayLen <= 1 {
-		return 0, 0
-	}
-	availBehind := currentIdx
-	availAhead := (arrayLen - 1) - currentIdx
-	lB = min(lookBehind, availBehind)
-	lA = min(lookAhead, availAhead)
-	if unusedB := lookBehind - lB; unusedB > 0 {
-		lA = min(availAhead, lA+unusedB)
-	} else if unusedA := lookAhead - lA; unusedA > 0 {
-		lB = min(availBehind, lB+unusedA)
-	}
-	return lB, lA
-}
-
 func handlePropertyChange(event MpvMsg, playState *PlayState) {
 	var ok bool
 	switch event.Name {
