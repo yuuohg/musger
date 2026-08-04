@@ -203,7 +203,7 @@ func (ps *PlayState) GetTimePos() uint64 {
 }
 
 func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
-	client, err := ipc.InitIpc(GeneratePath(), GeneratePulsePath())
+	client, err := ipc.InitIpc(GeneratePath(), GeneratePulsePath(), true)
 	if err != nil {
 		return Model{}, nil, nil, err
 	}
