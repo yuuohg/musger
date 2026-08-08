@@ -3,6 +3,7 @@ package playlists
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -47,6 +48,7 @@ type Song struct {
 	Artist       string
 	Album        string
 	AlbumArtist  string
+	Duration     uint64
 	Hash         string
 	Lyricpath    string
 	Lrc          lyrics.Lrc
@@ -64,6 +66,8 @@ func PathTitle(path string) string {
 	return "Unknown title"
 }
 
+const sampleSize int64 = 64 * 1024
+
 func (song *Song) HashAudio() error {
 	var hasher *xxh3.Hasher = xxh3.New()
 	file, err := os.Open(song.Path)
@@ -72,12 +76,39 @@ func (song *Song) HashAudio() error {
 	}
 	defer file.Close()
 	s, err := file.Stat()
+	size := s.Size()
 	if err != nil {
 		return err
 	}
-	io.Copy(hasher, file)
-	song.Hash = fmt.Sprintf("%v-%x", s.Size(), hasher.Sum128().Bytes())
-	hasher.Reset()
+	if s.Size() < sampleSize*3 {
+		io.Copy(hasher, file)
+	} else {
+		buf := make([]byte, sampleSize)
+		_, err := io.ReadFull(file, buf)
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return err
+		}
+		hasher.Write(buf)
+		_, err = file.Seek(size/2, io.SeekStart)
+		if err != nil {
+			return fmt.Errorf("failed to seek: %w", err)
+		}
+		_, err = io.ReadFull(file, buf)
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return err
+		}
+		hasher.Write(buf)
+		_, err = file.Seek(-sampleSize, io.SeekEnd)
+		if err != nil {
+			return fmt.Errorf("failed to seek: %w", err)
+		}
+		_, err = io.ReadFull(file, buf)
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return err
+		}
+		hasher.Write(buf)
+	}
+	song.Hash = fmt.Sprintf("%x%x", size, hasher.Sum128().Bytes())
 	return nil
 }
 
@@ -102,7 +133,7 @@ func (s *Song) isAudio() bool {
 
 func (song *Song) Load(client *ipc.MpvClient) *Song {
 	if client.PulseaudioIsDead() {
-		client.KillPulse()
+		ipc.KillPulse()
 		ipc.StartPulse(client.PulsePath)
 	}
 	client.SendCommand(ipc.Loadfile(song.Path))
@@ -133,7 +164,7 @@ func (song *Song) GetLyrics() error {
 		song.Lyricpath = ""
 		return err
 	}
-	lrc, err := lyrics.LrctextToLrc(string(text))
+	lrc, err := lyrics.LrctextToLrc(string(text), song.Duration)
 	if err != nil {
 		song.Lyricpath = ""
 		return err
@@ -326,6 +357,7 @@ func Load(name string, files []string) Playlist {
 	playlist.RemoveNonAudioFiles()
 	playlist.RemoveDuplicates()
 	playlist.ExpandToAbsPath()
+	playlist.AllocateShuffle()
 	return playlist
 }
 

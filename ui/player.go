@@ -13,7 +13,6 @@ import (
 	fp "charm.land/bubbles/v2/filepicker"
 	tea "charm.land/bubbletea/v2"
 	lg "charm.land/lipgloss/v2"
-	rw "github.com/mattn/go-runewidth"
 )
 
 type Metadata int
@@ -147,6 +146,9 @@ func handlePropertyChange(event MpvMsg, playState *PlayState) {
 				return
 			}
 			playState.durationMs = secsToms(durationSecs)
+			if playState.song != nil {
+				playState.song.Duration = secsToms(durationSecs)
+			}
 		}
 	case "time-pos/full":
 		{
@@ -167,6 +169,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 		handlePropertyChange(msg, &m.playState)
 		if m.playState.greenlit && !m.playState.song.FromHash {
 			m.playState.song.Title = m.playState.nextTitle
+			m.updateCurrState()
 		}
 	} else if msg.Event == "end-file" && msg.Reason == "eof" {
 		queue := m.GetQueue()
@@ -178,10 +181,12 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 			{
 				m.count++
 				m.playState.song = queue.Songs[queue.CurrSong].Load(m.client)
+				m.updateCurrState()
 			}
 		case RepeatAll:
 			{
 				m = m.Change(false)
+				m.updateCurrState()
 			}
 		case RepeatOnce:
 			{
@@ -190,6 +195,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 					break
 				}
 				m = m.Change(false)
+				m.updateCurrState()
 			}
 		}
 	} else if msg.Event == "start-file" && msg.PlaylistEntryID == m.count {
@@ -216,6 +222,7 @@ func ViewSong(
 	title := "Unknown title"
 	artist := ""
 	var sep string
+	var final strings.Builder
 	if len(song.Title) != 0 {
 		title = song.Title
 	} else if len(song.PathTitle) != 0 {
@@ -236,16 +243,26 @@ func ViewSong(
 	if currSelected {
 		arrow = "-> "
 	}
-	final := arrow + title + sep + artist
-	if len(final) > width-1 {
-		fWidth := rw.StringWidth(final)
+	length := len(title) + len(artist) + len(sep) + 3
+	final.Grow(length)
+	final.WriteString(arrow)
+	final.WriteString(title)
+	final.WriteString(sep)
+	final.WriteString(artist)
+	if final.Len() > width-1 {
+		fWidth := StringWidth(final.String())
 		if fWidth > width-1 {
-			target := rw.StringWidth(title) - (fWidth - (width - 1))
-			title = rw.Truncate(title, target, "…")
-			final = arrow + title + sep + artist
+			final.Reset()
+			final.Grow(length)
+			target := StringWidth(title) - (fWidth - (width - 1))
+			title = Truncate(title, target, "…")
+			final.WriteString(arrow)
+			final.WriteString(title)
+			final.WriteString(sep)
+			final.WriteString(artist)
 		}
 	}
-	return final
+	return final.String()
 }
 
 func CurrStateAsStr(
@@ -261,7 +278,7 @@ func CurrStateAsStr(
 		len(p.Songs),
 		p.CurrSong,
 	)
-	final.Grow((lA+lB+1)*width + 1)
+	final.Grow((lA + lB + 1) * (width + 1))
 	if lB > 0 {
 		for s := p.CurrSong - lB; s != p.CurrSong; s++ {
 			actualIdx := s
@@ -410,6 +427,7 @@ func (m *Model) handleTextInput(msg tea.Msg) tea.Cmd {
 		}
 	}
 	m.ti, cmd = m.ti.Update(msg)
+	m.updateCurrState()
 	return cmd
 }
 
@@ -429,7 +447,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				break
 			}
 			if m.client.PulseaudioIsDead() {
-				m.client.KillPulse()
+				ipc.KillPulse()
 				ipc.StartPulse(m.client.PulsePath)
 			}
 			if m.playState.fileName == "" &&
@@ -457,6 +475,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				break
 			}
 			*m = m.Change(false)
+			m.updateCurrState()
 		}
 	case "b", "up":
 		{
@@ -468,6 +487,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				break
 			}
 			*m = m.Change(true)
+			m.updateCurrState()
 		}
 	case "h", "left":
 		{
@@ -491,9 +511,11 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 			if !queue.IsShuffled {
 				queue.AllocateShuffle()
 				queue.ShufflePlaylist()
+				m.updateCurrState()
 			} else {
 				queue.CurrSong = queue.ShuffledSongs[queue.CurrSong]
 				queue.IsShuffled = false
+				m.updateCurrState()
 			}
 		}
 	case "z":
@@ -608,9 +630,9 @@ func (m *Model) setupFilepicker() {
 func TruncateTitle(title string, width int) string {
 	target := width - 2
 	if len(title) >= target {
-		actualWidth := rw.StringWidth(title)
+		actualWidth := StringWidth(title)
 		if actualWidth >= target {
-			return rw.Truncate(title, target, "…")
+			return Truncate(title, target, "…")
 		}
 	}
 	return title
@@ -646,6 +668,14 @@ func (m *Model) viewFP(compositor *lg.Compositor) {
 	compositor.AddLayers(
 		menu.X(m.width/2 - menu.Width()/2).Y(m.height/2 - menu.Height()/2),
 	)
+}
+
+func (m *Model) updateCurrState() {
+	if len(m.playlists) == 0 || m.queue < 0 || m.queue >= len(m.playlists) {
+		return
+	}
+	h := (m.height - 6) / 2
+	m.currentState = CurrStateAsStr(m.width, h, h, &m.playlists[m.queue])
 }
 
 func (m Model) viewPlayer() tea.View {
@@ -704,16 +734,7 @@ func (m Model) viewPlayer() tea.View {
 	s.WriteString(shuffled)
 	s.WriteByte(NEWLINE)
 	if m.showQueue {
-		lines := 6 // 6 newlines written before
-		h := m.height - lines
-		s.WriteString(
-			CurrStateAsStr(
-				m.width,
-				h/2,
-				h/2,
-				queue,
-			),
-		)
+		s.WriteString(m.currentState)
 	}
 	if m.menuPos == NoMenu {
 		v := tea.NewView(s.String())

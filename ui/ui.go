@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"musger/ipc"
 	"musger/playlists"
@@ -17,6 +18,8 @@ import (
 	txt "charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lg "charm.land/lipgloss/v2"
+	"github.com/clipperhouse/uax29/v2/graphemes"
+	rw "github.com/mattn/go-runewidth"
 )
 
 var (
@@ -25,6 +28,8 @@ var (
 	padding               = lg.NewStyle().Padding(0, 1, 0, 1).Render
 	errStyle              = lg.NewStyle().Bold(true).Foreground(lg.Red).Render
 	titleStyle            = lg.NewStyle().Width(80).Align(lg.Center).Render
+	runeCache             = make(map[rune]int)
+	strCache              = make(map[string]int)
 )
 
 type Screen int
@@ -51,26 +56,60 @@ type PlayState struct {
 }
 
 type Model struct {
-	client      *ipc.MpvClient
-	msgChan     chan ipc.MpvResponse
-	playState   PlayState
-	queue       int
-	screen      Screen
-	playlists   []playlists.Playlist
-	filepicker  fp.Model
-	progress    progress.Model
-	ti          txt.Model
-	menuSong    *playlists.Song
-	loop        Loop
-	ids         map[int]*playlists.Playlist
-	tags        map[string]playlists.SongMetadata
-	availableId int
-	showQueue   bool
-	menuPos     int
-	height      int
-	width       int
-	count       int64
-	err         error
+	client       *ipc.MpvClient
+	msgChan      chan ipc.MpvResponse
+	playState    PlayState
+	queue        int
+	screen       Screen
+	playlists    []playlists.Playlist
+	filepicker   fp.Model
+	progress     progress.Model
+	ti           txt.Model
+	menuSong     *playlists.Song
+	loop         Loop
+	ids          map[int]*playlists.Playlist
+	tags         map[string]playlists.SongMetadata
+	currentState string
+	availableId  int
+	showQueue    bool
+	menuPos      int
+	height       int
+	width        int
+	count        int64
+	err          error
+}
+
+func (m Model) AsMUGR() playlists.MUGRFile {
+	queue := m.GetQueue()
+	mugr := playlists.MUGRFile{
+		Loop:         int(m.loop),
+		LastPlayed:   queue.CurrSong,
+		Queue:        m.queue,
+		SongMetadata: m.tags,
+		Playlists:    make(map[string][]string),
+	}
+	for _, playlist := range m.playlists {
+		name, files, err := playlist.Save()
+		if err != nil {
+			continue
+		}
+		mugr.Playlists[name] = files
+	}
+	return mugr
+}
+
+func (m *Model) Load(mugr playlists.MUGRFile) {
+	m.loop = Loop(mugr.Loop)
+	m.queue = mugr.Queue
+	m.tags = mugr.SongMetadata
+	i := 0
+	for name, files := range mugr.Playlists {
+		playlist := playlists.Load(name, files)
+		if i == m.queue {
+			playlist.CurrSong = mugr.LastPlayed
+		}
+		m.playlists = append(m.playlists, playlist)
+	}
 }
 
 func (m *Model) GetQueue() *playlists.Playlist {
@@ -131,6 +170,98 @@ func calculateLaLb(
 	return lB, lA
 }
 
+// taken from github.com/mattn/go-runewidth
+func graphemeWidth(cluster string) int {
+	width := 0
+	for _, r := range cluster {
+		width += RuneWidth(r)
+	}
+	if width > 2 {
+		width = 2
+	}
+	return width
+}
+
+func StringWidth(s string) (width int) {
+	width, ok := strCache[s]
+	if ok {
+		return width
+	}
+	if len(s) == 1 {
+		b := s[0]
+		if b < 0x20 || b == 0x7F {
+			return 0
+		}
+		return 1
+	}
+	if len(s) > 0 && len(s) <= utf8.UTFMax {
+		r, size := utf8.DecodeRuneInString(s)
+		if size == len(s) {
+			return RuneWidth(r)
+		}
+	}
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b >= 0x80 {
+			goto graphemes
+		}
+		if b >= 0x20 && b != 0x7F {
+			width++
+		}
+	}
+	strCache[s] = width
+	return
+
+graphemes:
+	width = 0
+	g := graphemes.FromString(s)
+	for g.Next() {
+		width += graphemeWidth(g.Value())
+	}
+	strCache[s] = width
+	return
+}
+
+func RuneWidth(r rune) int {
+	width, ok := runeCache[r]
+	if ok {
+		return width
+	}
+	width = rw.RuneWidth(r)
+	runeCache[r] = width
+	return width
+}
+
+func Truncate(str string, target int, tail string) string {
+	target = target - StringWidth(tail)
+	if len(str) < target {
+		return str
+	}
+	var (
+		final        strings.Builder
+		currentWidth int
+	)
+	final.Grow(len(str))
+	if target <= 0 {
+		return final.String()
+	}
+	for _, ch := range str {
+		if ch >= 0x20 && ch < 0x7F {
+			currentWidth++
+		} else {
+			currentWidth += RuneWidth(ch)
+		}
+		if currentWidth > target {
+			break
+		}
+		final.WriteRune(ch)
+	}
+	if final.Len() > 0 {
+		final.WriteString(tail)
+	}
+	return final.String()
+}
+
 var characters = []rune(
 	"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
 )
@@ -146,9 +277,9 @@ func randSeq(n int) string {
 func GeneratePath() string {
 	rt := os.ExpandEnv("$TMPDIR")
 	if rt == "" {
-		return "/usr/tmp/" + randSeq(32) + "_mpv.sock"
+		return "/usr/tmp/" + randSeq(48) + "_mpv.sock"
 	}
-	return rt + "/" + randSeq(32) + "_mpv.sock"
+	return rt + "/" + randSeq(48) + "_mpv.sock"
 }
 
 func GeneratePulsePath() string {
@@ -200,6 +331,14 @@ func (ps *PlayState) GetTimePos() uint64 {
 			ps.timePosMs,
 		),
 	)
+}
+
+func (m *Model) HashPlaylist(idx int) tea.Cmd {
+	m.ids[m.availableId] = &m.playlists[idx]
+	m.availableId++
+	return func() tea.Msg {
+		return hashSong(&m.playlists[idx], 0, m.availableId-1)
+	}
 }
 
 func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
@@ -278,13 +417,15 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.playlists = append(m.playlists, playlist)
 		m.queue = 0
 	} else {
-		mug := playlists.MUGRFile{}
-		m.err = mug.Load(selection)
+		mugr := playlists.MUGRFile{}
+		m.err = mugr.Load(selection)
 		if m.err != nil {
 			return m, tea.Batch(cmd, errorCmd())
 		}
+		m.Load(mugr)
 	}
 	m.screen = Player
+	m.updateCurrState()
 	return m, cmd
 }
 
@@ -355,6 +496,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		{
 			if msg.Mod == tea.ModCtrl && msg.Code == 'c' {
 				return m, tea.Quit
+			} else if msg.Mod == tea.ModCtrl && msg.Code == 's' {
+				mugr := m.AsMUGR()
+				mugr.Save("test.json")
 			}
 		}
 	case MpvMsg:
@@ -367,6 +511,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.progress.SetWidth(m.width)
 			m.ti.SetWidth(int(float64(m.width) * 0.75))
 			titleStyle = lg.NewStyle().Width(m.width).Align(lg.Center).Render
+			m.updateCurrState()
 		}
 	case ClearErrMsg:
 		{

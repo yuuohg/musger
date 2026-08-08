@@ -60,10 +60,7 @@ func (mpvc *MpvClient) Close() error {
 	if err != nil {
 		return err
 	}
-	err = os.Remove(mpvc.path)
-	if err != nil {
-		return err
-	}
+	os.Remove(mpvc.path)
 	mpvc.mpvCmd.Process.Kill()
 	return nil
 }

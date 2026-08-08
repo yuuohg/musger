@@ -35,7 +35,7 @@ func main() {
 				ansi.RESET,
 			)
 		}
-		c.KillPulse()
+		ipc.KillPulse()
 		ipc.StartPulse(ui.GeneratePulsePath())
 		retries--
 	}

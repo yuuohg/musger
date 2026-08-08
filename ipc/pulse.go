@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
 	"os/exec"
 	"time"
 
+	// "github.com/jfreymuth/pulse/proto"
 	"musger/ansi"
-
-	"github.com/jfreymuth/pulse/proto"
 )
 
 func StartPulse(pulsePath string) error {
@@ -40,7 +38,7 @@ func StartPulse(pulsePath string) error {
 	return nil
 }
 
-func (client *MpvClient) KillPulse() error {
+func KillPulse() error {
 	pk := exec.Command("pulseaudio", "--kill")
 	pk.Run()
 	if PulseProcessAlive() {
@@ -77,38 +75,38 @@ func (client *MpvClient) UpdatePulsePath(log bool) error {
 }
 
 func (client *MpvClient) PulseaudioIsDead() bool {
-	c := &proto.Client{}
-	c.SetTimeout(time.Millisecond * 10)
+	// c := &proto.Client{}
+	// c.SetTimeout(time.Millisecond * 10)
 	conn, err := net.Dial("unix", client.PulsePath)
 	if err != nil {
 		return true
 	}
-	c.Open(conn)
-
-	cookiePath := os.Getenv("HOME") + "/.config/pulse/cookie"
-	if path, ok := os.LookupEnv("PULSE_COOKIE"); ok {
-		cookiePath = path
-	}
-
-	cookie, err := os.ReadFile(cookiePath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			conn.Close()
-			return true
-		}
-		cookie = make([]byte, 256)
-	}
-	var authReply proto.AuthReply
-	err = c.Request(
-		&proto.Auth{
-			Version: c.Version(),
-			Cookie:  cookie,
-		}, &authReply,
-	)
-	if err != nil {
-		conn.Close()
-		return true
-	}
+	// c.Open(conn)
+	//
+	// cookiePath := os.Getenv("HOME") + "/.config/pulse/cookie"
+	// if path, ok := os.LookupEnv("PULSE_COOKIE"); ok {
+	// 	cookiePath = path
+	// }
+	//
+	// cookie, err := os.ReadFile(cookiePath)
+	// if err != nil {
+	// 	if !os.IsNotExist(err) {
+	// 		conn.Close()
+	// 		return true
+	// 	}
+	// 	cookie = make([]byte, 256)
+	// }
+	// var authReply proto.AuthReply
+	// err = c.Request(
+	// 	&proto.Auth{
+	// 		Version: c.Version(),
+	// 		Cookie:  cookie,
+	// 	}, &authReply,
+	// )
+	// if err != nil {
+	// 	conn.Close()
+	// 	return true
+	// }
 	conn.Close()
 	return false
 }
