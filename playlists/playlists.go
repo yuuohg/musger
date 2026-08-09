@@ -143,6 +143,7 @@ func (song *Song) Load(client *ipc.MpvClient) *Song {
 func (song *Song) MergeMetadata(metadata SongMetadata) {
 	if len(metadata.Title) > 0 {
 		song.Title = metadata.Title
+		song.FromHash = true
 	}
 	if len(metadata.Artist) > 0 {
 		song.Artist = metadata.Artist
