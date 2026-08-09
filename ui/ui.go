@@ -67,7 +67,7 @@ type Model struct {
 	ti           txt.Model
 	menuSong     *playlists.Song
 	loop         Loop
-	ids          map[int]*playlists.Playlist
+	ids          map[int]int
 	tags         map[string]playlists.SongMetadata
 	currentState string
 	availableId  int
@@ -333,11 +333,28 @@ func (ps *PlayState) GetTimePos() uint64 {
 	)
 }
 
-func (m *Model) HashPlaylist(idx int) tea.Cmd {
-	m.ids[m.availableId] = &m.playlists[idx]
-	m.availableId++
+func hashSong(
+	playlist *playlists.Playlist,
+	idx int,
+	id int,
+) tea.Cmd {
+	song := playlist.Songs[idx]
+	if len(song.Hash) != 0 {
+		return func() tea.Msg {
+			return hashMsg{
+				id:   id,
+				idx:  idx,
+				hash: song.Hash,
+			}
+		}
+	}
+	song.HashAudio()
 	return func() tea.Msg {
-		return hashSong(&m.playlists[idx], 0, m.availableId-1)
+		return hashMsg{
+			id:   id,
+			idx:  idx,
+			hash: song.Hash,
+		}
 	}
 }
 
@@ -368,7 +385,7 @@ func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
 	prog.ShowPercentage = false
 	textInput := txt.New()
 	textInput.SetWidth(45)
-	ids := make(map[int]*playlists.Playlist)
+	ids := make(map[int]int)
 	tags := make(map[string]playlists.SongMetadata)
 	return Model{
 		client:     client,
@@ -423,6 +440,10 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmd, errorCmd())
 		}
 		m.Load(mugr)
+		var idx int = m.queue
+		m.ids[m.availableId] = idx
+		m.availableId++
+		cmd = tea.Batch(hashSong(&m.playlists[idx], 0, m.availableId-1), cmd)
 	}
 	m.screen = Player
 	m.updateCurrState()
@@ -430,13 +451,13 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type (
-	MpvMsg  ipc.MpvResponse
-	hashMsg struct {
+	MpvMsg      ipc.MpvResponse
+	ClearErrMsg struct{}
+	hashMsg     struct {
 		id   int
 		idx  int
 		hash string
 	}
-	ClearErrMsg struct{}
 )
 
 func waitForMpv(msgChan chan ipc.MpvResponse) tea.Cmd {
@@ -448,33 +469,8 @@ func waitForMpv(msgChan chan ipc.MpvResponse) tea.Cmd {
 func errorCmd() tea.Cmd {
 	return tea.Tick(
 		time.Second*2,
-		func(t time.Time) tea.Msg { return ClearErrMsg{} },
+		func(_ time.Time) tea.Msg { return ClearErrMsg{} },
 	)
-}
-
-func hashSong(
-	playlist *playlists.Playlist,
-	idx int,
-	id int,
-) tea.Cmd {
-	song := playlist.Songs[idx]
-	if len(song.Hash) != 0 {
-		return func() tea.Msg {
-			return hashMsg{
-				id:   id,
-				idx:  idx,
-				hash: song.Hash,
-			}
-		}
-	}
-	song.HashAudio()
-	return func() tea.Msg {
-		return hashMsg{
-			id:   id,
-			idx:  idx,
-			hash: song.Hash,
-		}
-	}
 }
 
 func (m Model) viewPickingMain() tea.View {
@@ -520,10 +516,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case hashMsg:
 		{
-			playlist, ok := m.ids[msg.id]
+			playlistIdx, ok := m.ids[msg.id]
 			if !ok {
 				break
 			}
+			playlist := &m.playlists[playlistIdx]
 			playlist.Songs[msg.idx].Hash = msg.hash
 			metadata, ok := m.tags[playlist.Songs[msg.idx].Hash]
 			if ok {
@@ -531,8 +528,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if msg.idx == len(playlist.Songs)-1 {
 				delete(m.ids, msg.id)
+				m.updateCurrState()
 				return m, nil
 			}
+			m.updateCurrState()
 			return m, tea.Batch(hashSong(playlist, msg.idx+1, msg.id))
 		}
 	}
