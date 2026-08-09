@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"syscall"
 	"time"
 
 	// "github.com/jfreymuth/pulse/proto"
@@ -74,12 +76,60 @@ func (client *MpvClient) UpdatePulsePath(log bool) error {
 	return nil
 }
 
-func (client *MpvClient) PulseaudioIsDead() bool {
+func GetPulsePath() string {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Millisecond*250,
+	)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "pactl", "-f", "json", "info")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	var s PactlInfo
+	json.Unmarshal(out, &s)
+	if s.ServerString != "" {
+		return s.ServerString
+	}
+	return ""
+}
+
+func PulseaudioIsDead(pulsePath string) bool {
 	// c := &proto.Client{}
 	// c.SetTimeout(time.Millisecond * 10)
-	conn, err := net.Dial("unix", client.PulsePath)
-	if err != nil {
-		return true
+	retries := 5
+	for {
+		if retries == 0 {
+			break
+		}
+		conn, err := net.Dial("unix", pulsePath)
+		if err == nil {
+			fromNow := time.Now().Add(time.Microsecond * 300)
+			conn.SetWriteDeadline(fromNow)
+			_, e := conn.Write([]byte{0x00})
+			if e != nil {
+				return true
+			}
+			return false
+		} else {
+			operr, ok := err.(*net.OpError)
+			if !ok {
+				return true
+			}
+			sysc, ok := operr.Err.(*os.SyscallError)
+			if !ok {
+				return true
+			}
+			errno, ok := sysc.Err.(syscall.Errno)
+			if !ok {
+				return true
+			}
+			if errno == syscall.EAGAIN {
+				retries--
+				continue
+			}
+		}
 	}
 	// c.Open(conn)
 	//
@@ -107,8 +157,11 @@ func (client *MpvClient) PulseaudioIsDead() bool {
 	// 	conn.Close()
 	// 	return true
 	// }
-	conn.Close()
-	return false
+	return true
+}
+
+func (client *MpvClient) PulseaudioIsDead() bool {
+	return PulseaudioIsDead(client.PulsePath)
 }
 
 func PulseProcessAlive() bool {

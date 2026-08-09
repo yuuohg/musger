@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+const (
+	Play             = `{"command":["set_property","pause",false]}`
+	Pause            = `{"command":["set_property","pause",true]}`
+	SeekForwardFive  = `{"command":["seek",5]}`
+	SeekBackwardFive = `{"command":["seek",-5]}`
+	Stop             = `{"command":["stop"]}`
+)
+
 func (client *MpvClient) SendCommand(command string) {
 	fmt.Fprintln(client.conn, strings.TrimSpace(command))
 }

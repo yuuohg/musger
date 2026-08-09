@@ -10,14 +10,6 @@ import (
 	"musger/ansi"
 )
 
-const (
-	Play             = `{"command":["set_property","pause",false]}`
-	Pause            = `{"command":["set_property","pause",true]}`
-	SeekForwardFive  = `{"command":["seek",5]}`
-	SeekBackwardFive = `{"command":["seek",-5]}`
-	Stop             = `{"command":["stop"]}`
-)
-
 type MpvClient struct {
 	path      string
 	conn      net.Conn

@@ -326,11 +326,7 @@ func (ps *PlayState) GetTimePos() uint64 {
 	} else if ps.pause {
 		return ps.timePosMs
 	}
-	return uint64(
-		time.Since(ps.lastTimePosCheck).Milliseconds() + int64(
-			ps.timePosMs,
-		),
-	)
+	return uint64(time.Since(ps.lastTimePosCheck).Milliseconds()) + ps.timePosMs
 }
 
 func hashSong(

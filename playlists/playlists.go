@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -269,9 +270,10 @@ func (p *Playlist) RemoveNonAudioFiles() {
 	if len(p.Songs) == 0 {
 		return
 	}
+	isNotAudio := func(song Song) bool { return !song.isAudio() }
 	p.Songs = slices.DeleteFunc(
 		p.Songs,
-		func(song Song) bool { return !song.isAudio() },
+		isNotAudio,
 	)
 }
 
@@ -408,17 +410,16 @@ func NewAD(dir string) (Playlist, error) {
 	if err != nil {
 		return Playlist{}, err
 	}
-	os.Chdir(dir)
 	audioDir := Playlist{Name: dir, Songs: make([]Song, 0, 5)}
 	if len(entries) == 0 {
 		return audioDir, nil
 	}
-	files := make([]Song, 0, 5)
-	for _, f := range entries {
-		if f.IsDir() {
+	files := make([]Song, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
 			continue
 		}
-		name := f.Name()
+		name := path.Join(dir, entry.Name())
 		files = append(files, Song{Path: name})
 	}
 	audioDir.Songs = files
@@ -426,9 +427,5 @@ func NewAD(dir string) (Playlist, error) {
 	audioDir.ExpandToAbsPath()
 	audioDir.AddPathTitle()
 	audioDir.AllocateShuffle()
-	err = os.Chdir("..")
-	if err != nil {
-		return Playlist{}, err
-	}
 	return audioDir, nil
 }

@@ -100,17 +100,25 @@ func BenchmarkRead(b *testing.B) {
 }
 
 func BenchmarkDead(b *testing.B) {
-	c, err := ipc.InitIpc(ui.GeneratePath(), ui.GeneratePulsePath(), false)
+	err := ipc.StartPulse(ui.GeneratePulsePath())
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
-	c.UpdatePulsePath(false)
-	// var s string
+	p := ipc.GetPulsePath()
+	r := make([]bool, 0, 50_000)
 	for b.Loop() {
-		c.PulseaudioIsDead()
+		r = append(r, ipc.PulseaudioIsDead(p))
 	}
 	// fmt.Printf("r: %v\n", r)
-	// fmt.Printf("s: %v\n", s)
+	numOfTrue := 0
+	for _, e := range r {
+		if e {
+			numOfTrue++
+		}
+	}
+	numOfFalse := len(r) - numOfTrue
+	fmt.Printf("numOfTrue: %v\n", numOfTrue)
+	fmt.Printf("numOfFalse: %v\n", numOfFalse)
 }
 
 func BenchmarkShuffle(b *testing.B) {

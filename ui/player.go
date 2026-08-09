@@ -76,7 +76,7 @@ func DisplayMenu(c int) string {
 	return s.String()
 }
 
-func (m Model) Change(prev bool) Model {
+func (m Model) ChangeSong(prev bool) Model {
 	queue := m.GetQueue()
 	if queue == nil {
 		return m
@@ -185,7 +185,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 			}
 		case RepeatAll:
 			{
-				m = m.Change(false)
+				m = m.ChangeSong(false)
 				m.updateCurrState()
 			}
 		case RepeatOnce:
@@ -194,7 +194,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 				if isAtEnd {
 					break
 				}
-				m = m.Change(false)
+				m = m.ChangeSong(false)
 				m.updateCurrState()
 			}
 		}
@@ -431,34 +431,39 @@ func (m *Model) handleTextInput(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+func (m *Model) handleEnter() {
+	queue := m.GetQueue()
+	if m.menuPos != NoMenu && m.menuPos < 5 {
+		m.menuPos += 5
+		if m.menuPos < MLyricPath {
+			m.ti.Focus()
+			m.setupInput()
+		} else if m.menuPos == MLyricPath {
+			m.setupFilepicker()
+		}
+		return
+	}
+	if m.client.PulseaudioIsDead() {
+		ipc.KillPulse()
+		ipc.StartPulse(m.client.PulsePath)
+	}
+	if m.playState.fileName == "" &&
+		len(queue.Songs) != 0 {
+		m.playState.song = queue.Songs[queue.CurrSong].Load(
+			m.client,
+		)
+		m.count++
+		return
+	}
+	m.client.SendCommand(ipc.TogglePlay(m.playState.pause))
+}
+
 func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 	queue := m.GetQueue()
 	switch msg.Keystroke() {
 	case "p", "space", " ", "enter":
 		{
-			if m.menuPos != NoMenu && m.menuPos < 5 {
-				m.menuPos += 5
-				if m.menuPos < MLyricPath {
-					m.ti.Focus()
-					m.setupInput()
-				} else if m.menuPos == MLyricPath {
-					m.setupFilepicker()
-				}
-				break
-			}
-			if m.client.PulseaudioIsDead() {
-				ipc.KillPulse()
-				ipc.StartPulse(m.client.PulsePath)
-			}
-			if m.playState.fileName == "" &&
-				len(queue.Songs) != 0 {
-				m.playState.song = queue.Songs[queue.CurrSong].Load(
-					m.client,
-				)
-				m.count++
-				break
-			}
-			m.client.SendCommand(ipc.TogglePlay(m.playState.pause))
+			m.handleEnter()
 		}
 	case "esc", "escape":
 		{
@@ -474,7 +479,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				m.menuPos %= 5
 				break
 			}
-			*m = m.Change(false)
+			*m = m.ChangeSong(false)
 			m.updateCurrState()
 		}
 	case "b", "up":
@@ -486,7 +491,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				}
 				break
 			}
-			*m = m.Change(true)
+			*m = m.ChangeSong(true)
 			m.updateCurrState()
 		}
 	case "h", "left":
@@ -681,12 +686,13 @@ func (m *Model) updateCurrState() {
 func (m Model) viewPlayer() tea.View {
 	var s strings.Builder
 	var progress float64 = 0
-	timePos := MstoReadable(m.playState.GetTimePos())
+	timePos := m.playState.GetTimePos()
+	timePosReadable := MstoReadable(timePos)
 	duration := MstoReadable(m.playState.durationMs)
-	spaces := strings.Repeat(" ", m.width-(len(timePos)+len(duration)))
+	spaces := strings.Repeat(" ", m.width-(len(timePosReadable)+len(duration)))
 	if m.playState.durationMs != 0 {
 		progress = float64(
-			m.playState.GetTimePos(),
+			timePos,
 		) / float64(
 			m.playState.durationMs,
 		)
@@ -720,7 +726,7 @@ func (m Model) viewPlayer() tea.View {
 	s.WriteByte(NEWLINE)
 	s.WriteString(m.progress.ViewAs(progress))
 	s.WriteByte(NEWLINE)
-	s.WriteString(timePos)
+	s.WriteString(timePosReadable)
 	s.WriteString(spaces)
 	s.WriteString(duration)
 	s.WriteByte(NEWLINE)
