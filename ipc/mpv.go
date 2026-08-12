@@ -63,12 +63,12 @@ SCAN:
 	qc <- struct{}{}
 }
 
-func (mpvc *MpvClient) Close() error {
-	err := mpvc.conn.Close()
+func (client *MpvClient) Close() error {
+	err := client.conn.Close()
 	if err != nil {
 		return err
 	}
-	os.Remove(mpvc.path)
-	mpvc.mpvCmd.Process.Kill()
+	os.Remove(client.path)
+	client.mpvCmd.Process.Kill()
 	return nil
 }

@@ -50,30 +50,15 @@ func KillPulse() error {
 	return nil
 }
 
-func (client *MpvClient) UpdatePulsePath(log bool) error {
-	ctx, cancel := context.WithTimeout(
-		context.Background(),
-		time.Millisecond*250,
-	)
-	defer cancel()
-	if log {
-		Logf(ansi.BLUE, "Finding server path")
+func (client *MpvClient) UpdatePulsePath(log bool) bool {
+	Logf(ansi.BLUE, "Finding server path")
+	path := GetPulsePath()
+	if len(path) != 0 {
+		client.PulsePath = path
+		Logf(ansi.GREEN, "Found server path: %v", path)
+		return true
 	}
-	cmd := exec.CommandContext(ctx, "pactl", "-f", "json", "info")
-	out, err := cmd.Output()
-	if err != nil {
-		return err
-	}
-	var s PactlInfo
-	json.Unmarshal(out, &s)
-	if s.ServerString != "" {
-		if log {
-			Logf(ansi.GREEN, "Found server path: %v", s.ServerString)
-		}
-		client.PulsePath = s.ServerString
-		return nil
-	}
-	return nil
+	return false
 }
 
 func GetPulsePath() string {

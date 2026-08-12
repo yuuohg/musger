@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -76,10 +77,10 @@ func DisplayMenu(c int) string {
 	return s.String()
 }
 
-func (m Model) ChangeSong(prev bool) Model {
+func (m *Model) ChangeSong(prev bool) {
 	queue := m.GetQueue()
 	if queue == nil {
-		return m
+		return
 	}
 	var song int
 	var err error
@@ -91,7 +92,7 @@ func (m Model) ChangeSong(prev bool) Model {
 	}
 	if err != nil {
 		m.err = err
-		return m
+		return
 	}
 	if queue.IsShuffled {
 		m.playState.song = queue.Songs[queue.ShuffledSongs[song]].Load(
@@ -101,7 +102,6 @@ func (m Model) ChangeSong(prev bool) Model {
 		m.playState.song = queue.Songs[song].Load(m.client)
 	}
 	m.count++
-	return m
 }
 
 func handlePropertyChange(event MpvMsg, playState *PlayState) {
@@ -185,7 +185,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 			}
 		case RepeatAll:
 			{
-				m = m.ChangeSong(false)
+				m.ChangeSong(false)
 				m.updateCurrState()
 			}
 		case RepeatOnce:
@@ -194,7 +194,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 				if isAtEnd {
 					break
 				}
-				m = m.ChangeSong(false)
+				m.ChangeSong(false)
 				m.updateCurrState()
 			}
 		}
@@ -458,6 +458,42 @@ func (m *Model) handleEnter() {
 	m.client.SendCommand(ipc.TogglePlay(m.playState.pause))
 }
 
+func (m *Model) handleSaveInput(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		{
+			switch msg.Keystroke() {
+			case "enter":
+				{
+					p := m.ti.Value()
+					b := path.Base(p)
+					if b == "/" {
+						m.ti.Blur()
+						m.saving = false
+						break
+					}
+					d := path.Dir(p)
+					os.MkdirAll(d, os.ModeDir)
+					m.ti.Blur()
+					m.savePath = p
+					m.AsMUGR().Save(b)
+					m.saving = false
+					m.saved = true
+				}
+			case "esc", "escape":
+				{
+					m.ti.Blur()
+					m.saving = false
+				}
+			}
+		}
+	}
+	m.ti, cmd = m.ti.Update(msg)
+	m.updateCurrState()
+	return tea.Batch(cmd, savedCmd())
+}
+
 func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 	queue := m.GetQueue()
 	switch msg.Keystroke() {
@@ -479,7 +515,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				m.menuPos %= 5
 				break
 			}
-			*m = m.ChangeSong(false)
+			m.ChangeSong(false)
 			m.updateCurrState()
 		}
 	case "b", "up":
@@ -491,7 +527,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 				}
 				break
 			}
-			*m = m.ChangeSong(true)
+			m.ChangeSong(true)
 			m.updateCurrState()
 		}
 	case "h", "left":
@@ -514,7 +550,6 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 	case "s":
 		{
 			if !queue.IsShuffled {
-				queue.AllocateShuffle()
 				queue.ShufflePlaylist()
 				m.updateCurrState()
 			} else {
@@ -578,26 +613,6 @@ func (m *Model) handleFP(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.menuPos >= MTitle && m.menuPos < MLyricPath {
-		cmd := m.handleTextInput(msg)
-		return m, cmd
-	} else if m.menuPos == MLyricPath {
-		cmd := m.handleFP(msg)
-		return m, cmd
-	}
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		{
-			m.handleKeybinds(msg)
-		}
-	}
-	if m.err != nil {
-		return m, tea.Batch(waitForMpv(m.msgChan), errorCmd())
-	}
-	return m, tea.Batch(waitForMpv(m.msgChan))
-}
-
 func (m *Model) setupInput() {
 	switch m.menuPos {
 	case MTitle:
@@ -620,6 +635,19 @@ func (m *Model) setupInput() {
 			m.ti.Reset()
 			m.ti.SetValue(m.menuSong.AlbumArtist)
 		}
+	}
+}
+
+func (m *Model) setupSaveInput() {
+	m.ti.Focus()
+	if len([]byte(m.savePath)) > 0 {
+		m.ti.SetValue(m.savePath)
+	} else {
+		d, err := os.Getwd()
+		if err != nil {
+			return
+		}
+		m.ti.SetValue(d + string(os.PathSeparator))
 	}
 }
 
@@ -675,6 +703,15 @@ func (m *Model) viewFP(compositor *lg.Compositor) {
 	)
 }
 
+func (m *Model) viewSave(compositor *lg.Compositor) {
+	content := "Saved to: " + path.Base(m.savePath)
+	styledContent := borderStyle(padding(content))
+	menu := lg.NewLayer(styledContent).Z(1)
+	compositor.AddLayers(
+		menu.X(m.width/2 - menu.Width()/2).Y(m.height - menu.Height()),
+	)
+}
+
 func (m *Model) updateCurrState() {
 	if len(m.playlists) == 0 || m.queue < 0 || m.queue >= len(m.playlists) {
 		return
@@ -683,19 +720,45 @@ func (m *Model) updateCurrState() {
 	m.currentState = CurrStateAsStr(m.width, h, h, &m.playlists[m.queue])
 }
 
+func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.menuPos >= MTitle && m.menuPos < MLyricPath {
+		cmd := m.handleTextInput(msg)
+		return m, cmd
+	} else if m.menuPos == MLyricPath {
+		cmd := m.handleFP(msg)
+		return m, cmd
+	} else if m.saving {
+		if !m.ti.Focused() {
+			m.setupSaveInput()
+		}
+		cmd := m.handleSaveInput(msg)
+		return m, cmd
+	}
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		{
+			m.handleKeybinds(msg)
+		}
+	}
+	if m.err != nil {
+		return m, tea.Batch(errorCmd())
+	}
+	return m, nil
+}
+
 func (m Model) viewPlayer() tea.View {
 	var s strings.Builder
 	var progress float64 = 0
 	timePos := m.playState.GetTimePos()
+	duration := m.playState.durationMs
 	timePosReadable := MstoReadable(timePos)
-	duration := MstoReadable(m.playState.durationMs)
-	spaces := strings.Repeat(" ", m.width-(len(timePosReadable)+len(duration)))
+	durationReadable := MstoReadable(duration)
+	spaces := strings.Repeat(
+		" ",
+		m.width-(len(timePosReadable)+len(durationReadable)),
+	)
 	if m.playState.durationMs != 0 {
-		progress = float64(
-			timePos,
-		) / float64(
-			m.playState.durationMs,
-		)
+		progress = float64(timePos) / float64(duration)
 	}
 	queue := m.GetQueue()
 	if queue == nil {
@@ -728,7 +791,7 @@ func (m Model) viewPlayer() tea.View {
 	s.WriteByte(NEWLINE)
 	s.WriteString(timePosReadable)
 	s.WriteString(spaces)
-	s.WriteString(duration)
+	s.WriteString(durationReadable)
 	s.WriteByte(NEWLINE)
 	s.WriteByte(NEWLINE)
 	s.WriteString(strconv.Itoa(len(queue.Songs)))
@@ -742,7 +805,8 @@ func (m Model) viewPlayer() tea.View {
 	if m.showQueue {
 		s.WriteString(m.currentState)
 	}
-	if m.menuPos == NoMenu {
+	s.WriteByte(NEWLINE)
+	if m.menuPos == NoMenu && !m.saving && !m.saved {
 		v := tea.NewView(s.String())
 		v.AltScreen = true
 		return v
@@ -755,6 +819,11 @@ func (m Model) viewPlayer() tea.View {
 		m.viewText(compositor)
 	} else if m.menuPos == MLyricPath {
 		m.viewFP(compositor)
+	}
+	if m.saving {
+		m.viewText(compositor)
+	} else if m.saved {
+		m.viewSave(compositor)
 	}
 	v := tea.NewView(compositor.Render())
 	v.AltScreen = true

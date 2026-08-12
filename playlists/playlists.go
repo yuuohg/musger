@@ -27,11 +27,82 @@ func remove[T any](slice []T, s int) []T {
 }
 
 type MUGRFile struct {
-	Loop         int                     `json:"loop"`
+	Loop         byte                    `json:"loop"`
 	SongMetadata map[string]SongMetadata `json:"song_metadata"`
 	Playlists    map[string][]string     `json:"playlists"`
 	Queue        int                     `json:"queue"`
 	LastPlayed   int                     `json:"last_played"`
+}
+
+func (mug MUGRFile) Save(file string) error {
+	f, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(mug)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(b)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (mug *MUGRFile) Load(file string) error {
+	contents, err := ReadUTF8File(file)
+	if err != nil {
+		return err
+	}
+	jsonNotVaild := !json.Valid(contents)
+	if jsonNotVaild {
+		return fmt.Errorf("Invaild json in %v", file)
+	}
+	json.Unmarshal(contents, mug)
+	emptyMUGR := &MUGRFile{}
+	if mug == emptyMUGR {
+		return fmt.Errorf("%v has no useful data", file)
+	}
+	return nil
+}
+
+func (mugr MUGRFile) Validate() error {
+	if len(mugr.Playlists) == 0 {
+		return fmt.Errorf("no playlists")
+	}
+	if mugr.Queue >= len(mugr.Playlists) || mugr.Queue < 0 {
+		return fmt.Errorf("queue index out of bounds")
+	}
+	successful := false
+All:
+	for _, v := range mugr.Playlists {
+		for _, file := range v {
+			song := Song{Path: file}
+			if song.isAudio() {
+				successful = true
+				break All
+			}
+		}
+	}
+	if !successful {
+		return fmt.Errorf("no songs available")
+	}
+	successful = false
+	emptyMetadata := SongMetadata{}
+	for _, v := range mugr.SongMetadata {
+		if v != emptyMetadata {
+			successful = true
+			break
+		}
+	}
+	if !successful {
+		return fmt.Errorf("no metadata")
+	}
+	if mugr.Loop > 2 {
+		return fmt.Errorf("invalid loop")
+	}
+	return nil
 }
 
 type SongMetadata struct {
@@ -43,18 +114,18 @@ type SongMetadata struct {
 }
 
 type Song struct {
+	FromHash     bool
+	NonPathTitle bool
 	Path         string
 	Title        string
 	PathTitle    string
 	Artist       string
 	Album        string
 	AlbumArtist  string
-	Duration     uint64
 	Hash         string
 	Lyricpath    string
+	Duration     uint64
 	Lrc          lyrics.Lrc
-	FromHash     bool
-	NonPathTitle bool
 }
 
 func PathTitle(path string) string {
@@ -113,7 +184,7 @@ func (song *Song) HashAudio() error {
 	return nil
 }
 
-func (s *Song) isAudio() bool {
+func (s Song) isAudio() bool {
 	t, err := mimetype.DetectFile(s.Path)
 	if err != nil {
 		return false
@@ -175,39 +246,6 @@ func (song *Song) GetLyrics() error {
 	return nil
 }
 
-func (mug *MUGRFile) Save(file string) error {
-	f, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-	b, err := json.Marshal(mug)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(b)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (mug *MUGRFile) Load(file string) error {
-	contents, err := ReadUTF8File(file)
-	if err != nil {
-		return err
-	}
-	jsonNotVaild := !json.Valid(contents)
-	if jsonNotVaild {
-		return fmt.Errorf("Invaild json in %v", file)
-	}
-	json.Unmarshal(contents, mug)
-	emptyMUGR := &MUGRFile{}
-	if mug == emptyMUGR {
-		return fmt.Errorf("%v has no useful data", file)
-	}
-	return nil
-}
-
 func ReadUTF8File(name string) ([]byte, error) {
 	file, err := os.Open(name)
 	if err != nil {
@@ -244,24 +282,18 @@ func (p *Playlist) ShufflePlaylist() {
 	if len(p.Songs) == 0 {
 		return
 	}
-	p.ShuffledSongs[0] = p.CurrSong
+	p.ShuffledSongs = make([]int, 0, len(p.Songs))
+	p.ShuffledSongs = append(p.ShuffledSongs, p.CurrSong)
 	if len(p.Songs) == 1 {
 		return
 	}
-	pool := make([]int, 0, len(p.Songs)-1)
 	for i := range len(p.Songs) {
-		if i == p.CurrSong {
-			continue
+		if i != p.CurrSong {
+			p.ShuffledSongs = append(p.ShuffledSongs, i)
 		}
-		pool = append(pool, i)
 	}
-	var i int = 1
-	for len(pool) != 0 {
-		poolIdx := rand.Intn(len(pool))
-		p.ShuffledSongs[i] = pool[poolIdx]
-		pool = remove(pool, poolIdx)
-		i++
-	}
+	rem := p.ShuffledSongs[1:]
+	rand.Shuffle(len(rem), func(i, j int) { rem[i], rem[j] = rem[j], rem[i] })
 	p.CurrSong = 0
 	p.IsShuffled = true
 }
@@ -360,7 +392,6 @@ func Load(name string, files []string) Playlist {
 	playlist.RemoveNonAudioFiles()
 	playlist.RemoveDuplicates()
 	playlist.ExpandToAbsPath()
-	playlist.AllocateShuffle()
 	return playlist
 }
 
@@ -377,18 +408,10 @@ func (p *Playlist) Moveto(idx int, destidx int) error {
 
 func (p *Playlist) AddPlaylist(other Playlist) {
 	p.Songs = append(p.Songs, other.Songs...)
-	p.AllocateShuffle()
 }
 
 func (p *Playlist) AddSong(song Song) {
 	p.Songs = append(p.Songs, song)
-	p.AllocateShuffle()
-}
-
-func (p *Playlist) AllocateShuffle() {
-	if !p.IsShuffled && len(p.Songs) != len(p.ShuffledSongs) {
-		p.ShuffledSongs = make([]int, len(p.Songs))
-	}
 }
 
 func (p *Playlist) RemoveDuplicates() {
@@ -426,6 +449,5 @@ func NewAD(dir string) (Playlist, error) {
 	audioDir.RemoveNonAudioFiles()
 	audioDir.ExpandToAbsPath()
 	audioDir.AddPathTitle()
-	audioDir.AllocateShuffle()
 	return audioDir, nil
 }

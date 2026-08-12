@@ -43,6 +43,16 @@ func hasValidSeperators(timestamp string) bool {
 	} == sep
 }
 
+func BenchmarkShuffle(b *testing.B) {
+	play, err := playlists.NewAD("audio")
+	if err != nil {
+		log.Fatalln(err.Error())
+	}
+	for b.Loop() {
+		play.ShufflePlaylist()
+	}
+}
+
 func BenchmarkHash(b *testing.B) {
 	s := playlists.Song{Path: "./audio/08 - Cadmium Colors.opus"}
 	for b.Loop() {
@@ -119,16 +129,6 @@ func BenchmarkDead(b *testing.B) {
 	numOfFalse := len(r) - numOfTrue
 	fmt.Printf("numOfTrue: %v\n", numOfTrue)
 	fmt.Printf("numOfFalse: %v\n", numOfFalse)
-}
-
-func BenchmarkShuffle(b *testing.B) {
-	play, err := playlists.NewAD("audio")
-	if err != nil {
-		log.Fatalln(err.Error())
-	}
-	for b.Loop() {
-		play.ShufflePlaylist()
-	}
 }
 
 func BenchmarkViewSong(b *testing.B) {

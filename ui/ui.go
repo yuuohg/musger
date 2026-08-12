@@ -28,6 +28,7 @@ var (
 	padding               = lg.NewStyle().Padding(0, 1, 0, 1).Render
 	errStyle              = lg.NewStyle().Bold(true).Foreground(lg.Red).Render
 	titleStyle            = lg.NewStyle().Width(80).Align(lg.Center).Render
+	noTime                = time.Time{}
 	runeCache             = make(map[rune]int)
 	strCache              = make(map[string]int)
 )
@@ -42,6 +43,32 @@ const (
 	Songs
 	ListPlaylist
 )
+
+type Loop byte
+
+const (
+	RepeatOnce Loop = iota
+	RepeatAll
+	RepeatOne
+)
+
+func (l Loop) loop() string {
+	switch l {
+	case RepeatOnce:
+		{
+			return "Repeat Once"
+		}
+	case RepeatAll:
+		{
+			return "Repeat All"
+		}
+	case RepeatOne:
+		{
+			return "Repeat One"
+		}
+	}
+	return "Unknown Loop"
+}
 
 type PlayState struct {
 	song             *playlists.Song
@@ -70,8 +97,11 @@ type Model struct {
 	ids          map[int]int
 	tags         map[string]playlists.SongMetadata
 	currentState string
-	availableId  int
+	savePath     string
 	showQueue    bool
+	saving       bool
+	saved        bool
+	availableId  int
 	menuPos      int
 	height       int
 	width        int
@@ -81,9 +111,13 @@ type Model struct {
 
 func (m Model) AsMUGR() playlists.MUGRFile {
 	queue := m.GetQueue()
+	cs := queue.CurrSong
+	if queue.IsShuffled {
+		cs = queue.ShuffledSongs[cs]
+	}
 	mugr := playlists.MUGRFile{
-		Loop:         int(m.loop),
-		LastPlayed:   queue.CurrSong,
+		Loop:         byte(m.loop),
+		LastPlayed:   cs,
 		Queue:        m.queue,
 		SongMetadata: m.tags,
 		Playlists:    make(map[string][]string),
@@ -98,7 +132,11 @@ func (m Model) AsMUGR() playlists.MUGRFile {
 	return mugr
 }
 
-func (m *Model) Load(mugr playlists.MUGRFile) {
+func (m *Model) Load(mugr playlists.MUGRFile) error {
+	e := mugr.Validate()
+	if e != nil {
+		return e
+	}
 	m.loop = Loop(mugr.Loop)
 	m.queue = mugr.Queue
 	m.tags = mugr.SongMetadata
@@ -110,6 +148,7 @@ func (m *Model) Load(mugr playlists.MUGRFile) {
 		}
 		m.playlists = append(m.playlists, playlist)
 	}
+	return nil
 }
 
 func (m *Model) GetQueue() *playlists.Playlist {
@@ -123,32 +162,6 @@ func (m *Model) GetQueue() *playlists.Playlist {
 		return nil
 	}
 	return &m.playlists[m.queue]
-}
-
-type Loop int
-
-const (
-	RepeatOnce Loop = iota
-	RepeatAll
-	RepeatOne
-)
-
-func (l Loop) loop() string {
-	switch l {
-	case RepeatOnce:
-		{
-			return "Repeat Once"
-		}
-	case RepeatAll:
-		{
-			return "Repeat All"
-		}
-	case RepeatOne:
-		{
-			return "Repeat One"
-		}
-	}
-	return "Unknown Loop"
 }
 
 // function below is ai-generated
@@ -268,8 +281,8 @@ var characters = []rune(
 
 func randSeq(n int) string {
 	b := make([]rune, n)
-	for i := range b {
-		b[i] = characters[rand.Intn(len(characters))]
+	for idx := range b {
+		b[idx] = characters[rand.Intn(len(characters))]
 	}
 	return string(b)
 }
@@ -320,8 +333,7 @@ func MstoReadable(ms uint64) string {
 }
 
 func (ps *PlayState) GetTimePos() uint64 {
-	e := time.Time{}
-	if e.Equal(ps.lastTimePosCheck) {
+	if noTime.Equal(ps.lastTimePosCheck) {
 		return 0
 	} else if ps.pause {
 		return ps.timePosMs
@@ -435,7 +447,11 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.err != nil {
 			return m, tea.Batch(cmd, errorCmd())
 		}
-		m.Load(mugr)
+		m.err = m.Load(mugr)
+		if m.err != nil {
+			return m, tea.Batch(cmd, errorCmd())
+		}
+		m.savePath = selection
 		var idx int = m.queue
 		m.ids[m.availableId] = idx
 		m.availableId++
@@ -447,9 +463,10 @@ func (m Model) updatePickingMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type (
-	MpvMsg      ipc.MpvResponse
-	ClearErrMsg struct{}
-	hashMsg     struct {
+	MpvMsg        ipc.MpvResponse
+	ClearErrMsg   struct{}
+	ClearSavedMsg struct{}
+	hashMsg       struct {
 		id   int
 		idx  int
 		hash string
@@ -469,6 +486,13 @@ func errorCmd() tea.Cmd {
 	)
 }
 
+func savedCmd() tea.Cmd {
+	return tea.Tick(
+		time.Second*2,
+		func(_ time.Time) tea.Msg { return ClearSavedMsg{} },
+	)
+}
+
 func (m Model) viewPickingMain() tea.View {
 	var s strings.Builder
 	s.WriteString("Pick a directory with music or a valid json file\n\n")
@@ -483,14 +507,27 @@ func (m Model) viewPickingMain() tea.View {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		{
-			if msg.Mod == tea.ModCtrl && msg.Code == 'c' {
+			if msg.Keystroke() == "ctrl+c" {
 				return m, tea.Quit
-			} else if msg.Mod == tea.ModCtrl && msg.Code == 's' {
-				mugr := m.AsMUGR()
-				mugr.Save("test.json")
+			} else if msg.Keystroke() == "ctrl+s" && m.menuPos == NoMenu && !m.saving {
+				if len(m.savePath) != 0 {
+					_, e := os.Stat(m.savePath)
+					if e != nil {
+						m.saving = true
+					} else {
+						m.AsMUGR().Save(m.savePath)
+						m.saved = true
+						cmds = append(cmds, savedCmd())
+					}
+				} else {
+					m.saving = true
+				}
+			} else if msg.Keystroke() == "ctrl+e" && m.menuPos == NoMenu && !m.saving {
+				m.saving = true
 			}
 		}
 	case MpvMsg:
@@ -508,7 +545,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ClearErrMsg:
 		{
 			m.err = nil
-			return m, tea.Batch(waitForMpv(m.msgChan))
+			return m, nil
+		}
+	case ClearSavedMsg:
+		{
+			m.saved = false
+			return m, nil
 		}
 	case hashMsg:
 		{
@@ -538,10 +580,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case Player:
 		{
-			return m.updatePlayer(msg)
+			m, cmd := m.updatePlayer(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
 		}
 	}
-	return m, tea.Batch(waitForMpv(m.msgChan))
+	return m, nil
 }
 
 func (m Model) View() tea.View {

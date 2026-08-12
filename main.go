@@ -24,8 +24,8 @@ func main() {
 	}
 	retries := 5
 	for {
-		err = c.UpdatePulsePath(true)
-		if err == nil {
+		ok := c.UpdatePulsePath(true)
+		if ok {
 			break
 		}
 		if retries == 0 {
