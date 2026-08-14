@@ -423,8 +423,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 		}
 	case "c":
 		{
-			m.loop++
-			m.loop = m.loop % (RepeatOne + 1)
+			m.loop = (m.loop + 1) % (RepeatOne + 1)
 		}
 	case "s":
 		{
