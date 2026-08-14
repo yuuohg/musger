@@ -36,30 +36,45 @@ func TogglePlay(pause bool) string {
 	}
 }
 
+func scan(scanner *bufio.Scanner, subChan chan<- string, iqc chan<- struct{}) {
+	for scanner.Scan() {
+		subChan <- scanner.Text()
+	}
+	iqc <- struct{}{}
+}
+
 func (client *MpvClient) MpvReplies(
 	msgChan chan MpvResponse,
 	qc chan struct{},
 ) {
 	scanner := bufio.NewScanner(client.conn)
+	subChan := make(chan string, 5)
+	iqc := make(chan struct{})
+	go scan(scanner, subChan, iqc)
 SCAN:
-	for scanner.Scan() {
+	for {
 		select {
-		case _ = <-qc:
+		case msg := <-subChan:
+			{
+				var response MpvResponse
+				err := json.Unmarshal([]byte(msg), &response)
+				if err != nil {
+					continue SCAN
+				}
+				response.originalJson = msg
+				msgChan <- response
+			}
+		case <-iqc:
+			{
+				break SCAN
+			}
+		case <-qc:
 			{
 				qc <- struct{}{}
 				break SCAN
 			}
-		default:
-			{
-				reply := scanner.Text()
-				var response MpvResponse
-				json.Unmarshal([]byte(reply), &response)
-				response.originalJson = reply
-				msgChan <- response
-			}
 		}
 	}
-	_ = scanner.Err()
 	qc <- struct{}{}
 }
 
