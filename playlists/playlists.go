@@ -274,23 +274,39 @@ type Playlist struct {
 	Name          string
 	Songs         []Song
 	ShuffledSongs []int
+	pool          []int
 	IsShuffled    bool
 	CurrSong      int
+}
+
+func (p *Playlist) UpdatePool() {
+	if len(p.pool) != len(p.Songs) {
+		p.pool = make([]int, 0, len(p.Songs))
+		for i := range len(p.Songs) {
+			p.pool = append(p.pool, i)
+		}
+	}
 }
 
 func (p *Playlist) ShufflePlaylist() {
 	if len(p.Songs) == 0 {
 		return
+	} else if p.CurrSong < 0 || p.CurrSong >= len(p.Songs) {
+		return
 	}
+	p.UpdatePool()
 	p.ShuffledSongs = make([]int, 0, len(p.Songs))
 	p.ShuffledSongs = append(p.ShuffledSongs, p.CurrSong)
 	if len(p.Songs) == 1 {
 		return
 	}
-	for i := range len(p.Songs) {
-		if i != p.CurrSong {
-			p.ShuffledSongs = append(p.ShuffledSongs, i)
-		}
+	if p.CurrSong == 0 {
+		p.ShuffledSongs = append(p.ShuffledSongs, p.pool[1:]...)
+	} else if p.CurrSong == len(p.Songs)-1 {
+		p.ShuffledSongs = append(p.ShuffledSongs, p.pool[:p.CurrSong]...)
+	} else {
+		p.ShuffledSongs = append(p.ShuffledSongs, p.pool[:p.CurrSong]...)
+		p.ShuffledSongs = append(p.ShuffledSongs, p.pool[p.CurrSong+1:]...)
 	}
 	rem := p.ShuffledSongs[1:]
 	rand.Shuffle(len(rem), func(i, j int) { rem[i], rem[j] = rem[j], rem[i] })
