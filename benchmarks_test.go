@@ -119,7 +119,6 @@ func BenchmarkDead(b *testing.B) {
 	for b.Loop() {
 		r = append(r, ipc.PulseaudioIsDead(p))
 	}
-	// fmt.Printf("r: %v\n", r)
 	numOfTrue := 0
 	for _, e := range r {
 		if e {

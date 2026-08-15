@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	// "github.com/jfreymuth/pulse/proto"
 	"musger/ansi"
 )
 
@@ -81,8 +80,6 @@ func GetPulsePath() string {
 }
 
 func PulseaudioIsDead(pulsePath string) bool {
-	// c := &proto.Client{}
-	// c.SetTimeout(time.Millisecond * 10)
 	retries := 5
 	for {
 		if retries == 0 {
@@ -116,32 +113,6 @@ func PulseaudioIsDead(pulsePath string) bool {
 			}
 		}
 	}
-	// c.Open(conn)
-	//
-	// cookiePath := os.Getenv("HOME") + "/.config/pulse/cookie"
-	// if path, ok := os.LookupEnv("PULSE_COOKIE"); ok {
-	// 	cookiePath = path
-	// }
-	//
-	// cookie, err := os.ReadFile(cookiePath)
-	// if err != nil {
-	// 	if !os.IsNotExist(err) {
-	// 		conn.Close()
-	// 		return true
-	// 	}
-	// 	cookie = make([]byte, 256)
-	// }
-	// var authReply proto.AuthReply
-	// err = c.Request(
-	// 	&proto.Auth{
-	// 		Version: c.Version(),
-	// 		Cookie:  cookie,
-	// 	}, &authReply,
-	// )
-	// if err != nil {
-	// 	conn.Close()
-	// 	return true
-	// }
 	return true
 }
 
