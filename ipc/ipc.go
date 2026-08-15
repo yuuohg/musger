@@ -29,7 +29,6 @@ type MpvResponse struct {
 	Level           string `json:"level,omitempty"`
 	Prefix          string `json:"prefix,omitempty"`
 	PlaylistEntryID int64  `json:"playlist_entry_id,omitempty"`
-	originalJson    string
 }
 
 type PactlInfo struct {

@@ -36,9 +36,9 @@ func TogglePlay(pause bool) string {
 	}
 }
 
-func scan(scanner *bufio.Scanner, subChan chan<- string, iqc chan<- struct{}) {
+func scan(scanner *bufio.Scanner, subChan chan<- []byte, iqc chan<- struct{}) {
 	for scanner.Scan() {
-		subChan <- scanner.Text()
+		subChan <- scanner.Bytes()
 	}
 	iqc <- struct{}{}
 }
@@ -48,7 +48,7 @@ func (client *MpvClient) MpvReplies(
 	qc chan struct{},
 ) {
 	scanner := bufio.NewScanner(client.conn)
-	subChan := make(chan string, 5)
+	subChan := make(chan []byte, 5)
 	iqc := make(chan struct{})
 	go scan(scanner, subChan, iqc)
 SCAN:
@@ -57,11 +57,10 @@ SCAN:
 		case msg := <-subChan:
 			{
 				var response MpvResponse
-				err := json.Unmarshal([]byte(msg), &response)
+				err := json.Unmarshal(msg, &response)
 				if err != nil {
 					continue SCAN
 				}
-				response.originalJson = msg
 				msgChan <- response
 			}
 		case <-iqc:
