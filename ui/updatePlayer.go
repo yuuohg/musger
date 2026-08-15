@@ -338,39 +338,109 @@ func (m *Model) handleEnter() {
 }
 
 func (m *Model) handleSaveInput(msg tea.Msg) tea.Cmd {
-	var cmd tea.Cmd
+	var cmd []tea.Cmd
+	c := true
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		{
 			switch msg.Keystroke() {
 			case "enter":
 				{
-					p := m.ti.Value()
-					b := path.Base(p)
-					if b == "/" {
+					filePath := m.ti.Value()
+					basePath := path.Base(filePath)
+					dirPath := path.Dir(filePath)
+					if basePath == "/" {
 						m.ti.Blur()
 						m.saving = false
+						c = false
 						break
 					}
-					d := path.Dir(p)
-					os.MkdirAll(d, os.ModeDir)
+					if len(m.savePath) != 0 && filePath == m.savePath {
+						m.AsMUGR().Save(m.savePath)
+						m.saving = false
+						m.saved = true
+						c = false
+						break
+					}
+					stats, err := os.Stat(filePath)
+					if err == nil && stats.Size() != 0 {
+						m.overwrite = filePath
+						m.overwriting = true
+						m.saving = false
+						m.saved = false
+						m.ti.Blur()
+						c = false
+						break
+					}
+					os.MkdirAll(dirPath, os.ModeDir)
 					m.ti.Blur()
-					m.savePath = p
-					m.AsMUGR().Save(b)
+					m.savePath = filePath
+					m.AsMUGR().Save(m.savePath)
 					m.saving = false
 					m.saved = true
+					cmd = append(cmd, savedCmd())
 				}
 			case "esc", "escape":
 				{
 					m.ti.Blur()
 					m.saving = false
+					c = false
 				}
 			}
 		}
 	}
-	m.ti, cmd = m.ti.Update(msg)
+	if c {
+		var cm tea.Cmd
+		m.ti, cm = m.ti.Update(msg)
+		cmd = append(cmd, cm)
+	}
 	m.updateCurrState()
-	return tea.Batch(cmd, savedCmd())
+	return tea.Batch(cmd...)
+}
+
+func (m *Model) handleDialogue(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		{
+			switch msg.Keystroke() {
+			case "left":
+				{
+					m.overwriteD = true
+				}
+			case "right":
+				{
+					m.overwriteD = false
+				}
+			case "up", "down":
+				{
+					m.overwriteD = !m.overwriteD
+				}
+			case "enter":
+				{
+					if m.overwriteD {
+						filePath := m.overwrite
+						dirPath := path.Dir(filePath)
+						os.MkdirAll(dirPath, os.ModeDir)
+						m.savePath = filePath
+						m.AsMUGR().Save(m.savePath)
+						m.saved = true
+						cmd = savedCmd()
+					}
+					m.overwriteD = false
+					m.overwriting = false
+				}
+			case "esc", "escape":
+				{
+					m.overwriteD = false
+					m.overwrite = ""
+					m.overwriting = false
+				}
+			}
+		}
+	}
+	m.updateCurrState()
+	return cmd
 }
 
 func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
@@ -510,6 +580,10 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setupSaveInput()
 		}
 		cmd := m.handleSaveInput(msg)
+		return m, cmd
+	}
+	if m.overwriting {
+		cmd := m.handleDialogue(msg)
 		return m, cmd
 	}
 	switch msg := msg.(type) {

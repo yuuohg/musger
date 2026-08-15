@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	lg "charm.land/lipgloss/v2"
 
+	"musger/ansi"
 	"musger/playlists"
 )
 
@@ -75,6 +76,33 @@ func DisplayMenu(c int) string {
 		s.WriteString("  ")
 	}
 	s.WriteString("Lyric File")
+	return s.String()
+}
+
+func DisplayDialogue(yes bool, basepath string) string {
+	var s strings.Builder
+	s.WriteString("Overwrite ")
+	s.WriteString(basepath)
+	s.WriteByte('?')
+	l := StringWidth(basepath)
+	s.WriteByte(NEWLINE)
+	if yes {
+		s.WriteString(ansi.INVERT)
+		s.WriteString("<yes>")
+		s.WriteString(ansi.RESET)
+	} else {
+		s.WriteString("<yes>")
+	}
+	for range l + 2 {
+		s.WriteByte(0x20)
+	}
+	if !yes {
+		s.WriteString(ansi.INVERT)
+		s.WriteString("<no>")
+		s.WriteString(ansi.RESET)
+	} else {
+		s.WriteString("<no>")
+	}
 	return s.String()
 }
 
@@ -234,6 +262,15 @@ func (m *Model) viewSave(compositor *lg.Compositor) {
 	)
 }
 
+func (m *Model) viewDialogue(compositor *lg.Compositor) {
+	content := DisplayDialogue(m.overwriteD, filepath.Base(m.overwrite))
+	styledContent := borderStyle(padding(content))
+	menu := lg.NewLayer(styledContent).Z(1)
+	compositor.AddLayers(
+		menu.X(m.width/2 - menu.Width()/2).Y(m.height/2 - menu.Height()/2),
+	)
+}
+
 func (m Model) viewPlayer() tea.View {
 	var s strings.Builder
 	var progress float64 = 0
@@ -294,7 +331,7 @@ func (m Model) viewPlayer() tea.View {
 		s.WriteString(m.currentState)
 	}
 	s.WriteByte(NEWLINE)
-	if m.menuPos == NoMenu && !m.saving && !m.saved {
+	if m.menuPos == NoMenu && !m.saving && !m.saved && !m.overwriting {
 		v := tea.NewView(s.String())
 		v.AltScreen = true
 		return v
@@ -312,6 +349,9 @@ func (m Model) viewPlayer() tea.View {
 		m.viewText(compositor)
 	} else if m.saved {
 		m.viewSave(compositor)
+	}
+	if m.overwriting {
+		m.viewDialogue(compositor)
 	}
 	v := tea.NewView(compositor.Render())
 	v.AltScreen = true

@@ -165,6 +165,9 @@ type Model struct {
 	tags         map[string]playlists.SongMetadata
 	currentState string
 	savePath     string
+	overwrite    string
+	overwriteD   bool
+	overwriting  bool
 	showQueue    bool
 	saving       bool
 	saved        bool
