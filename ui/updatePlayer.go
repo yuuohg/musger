@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -168,6 +169,24 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 			}
 		case RepeatAll:
 			{
+				isAtEnd := queue.CurrSong == len(queue.Songs)-1
+				if isAtEnd && queue.IsShuffled && len(queue.Songs) > 1 {
+					currSong := queue.ShuffledSongs[queue.CurrSong]
+					var nextSong int
+					for {
+						nextSong = rand.Intn(len(queue.Songs))
+						if nextSong != currSong {
+							break
+						}
+					}
+					queue.CurrSong = nextSong
+					queue.ShufflePlaylist()
+					m.playState.song = queue.Songs[queue.ShuffledSongs[queue.CurrSong]].Load(
+						m.client,
+					)
+					m.updateCurrState()
+					break
+				}
 				m.ChangeSong(false)
 				m.updateCurrState()
 			}
