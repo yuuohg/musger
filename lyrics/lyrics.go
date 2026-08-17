@@ -14,8 +14,8 @@ type compareNum struct {
 }
 
 type Lyric struct {
-	timestamps compareNum
 	lyric      string
+	timestamps compareNum
 }
 
 type Lrc struct {
@@ -102,7 +102,7 @@ func LrctextToLrc(text string, duration uint64) (Lrc, error) {
 	}
 	var err error
 	iterLines := strings.Lines(text)
-	var lines []string
+	lines := make([]string, 0, 256)
 	for line := range iterLines {
 		line = strings.TrimSpace(line)
 		if len(line) >= 10 && hasValidSeperators(line[:10]) &&
@@ -120,8 +120,8 @@ func LrctextToLrc(text string, duration uint64) (Lrc, error) {
 			lrc.lyrics = append(
 				lrc.lyrics,
 				Lyric{
-					compareNum{timestampMs, duration},
 					strings.TrimSpace(line[10:]),
+					compareNum{timestampMs, duration},
 				},
 			)
 			continue
@@ -133,8 +133,8 @@ func LrctextToLrc(text string, duration uint64) (Lrc, error) {
 		lrc.lyrics = append(
 			lrc.lyrics,
 			Lyric{
-				compareNum{currLyricTimestamp, nextLyricTimestamp},
 				strings.TrimSpace(line[10:]),
+				compareNum{currLyricTimestamp, nextLyricTimestamp},
 			},
 		)
 	}

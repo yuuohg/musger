@@ -27,11 +27,11 @@ func remove[T any](slice []T, s int) []T {
 }
 
 type MUGRFile struct {
-	Loop         byte                    `json:"loop"`
 	SongMetadata map[string]SongMetadata `json:"song_metadata"`
 	Playlists    map[string][]string     `json:"playlists"`
 	Queue        int                     `json:"queue"`
 	LastPlayed   int                     `json:"last_played"`
+	Loop         byte                    `json:"loop"`
 }
 
 func (mug MUGRFile) Save(file string) error {
@@ -114,8 +114,6 @@ type SongMetadata struct {
 }
 
 type Song struct {
-	FromHash     bool
-	NonPathTitle bool
 	Path         string
 	Title        string
 	PathTitle    string
@@ -124,8 +122,10 @@ type Song struct {
 	AlbumArtist  string
 	Hash         string
 	Lyricpath    string
-	Duration     uint64
 	Lrc          lyrics.Lrc
+	Duration     uint64
+	FromHash     bool
+	NonPathTitle bool
 }
 
 func PathTitle(path string) string {

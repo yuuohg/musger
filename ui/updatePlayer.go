@@ -148,9 +148,9 @@ func handlePropertyChange(event MpvMsg, playState *PlayState) {
 	}
 }
 
-func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleMpvMsg(msg MpvMsg) {
 	if msg.Event == "property-change" {
-		handlePropertyChange(msg, &m.playState)
+		handlePropertyChange(msg, m.playState)
 		if m.playState.greenlit && !m.playState.song.FromHash {
 			m.playState.song.Title = m.playState.nextTitle
 			m.updateCurrState()
@@ -158,7 +158,7 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 	} else if msg.Event == "end-file" && msg.Reason == "eof" {
 		queue := m.GetQueue()
 		if queue == nil {
-			return m, tea.Batch(waitForMpv(m.msgChan))
+			return
 		}
 		switch m.loop {
 		case RepeatOne:
@@ -203,7 +203,6 @@ func (m Model) handleMpvMsg(msg MpvMsg) (tea.Model, tea.Cmd) {
 	} else if msg.Event == "start-file" && msg.PlaylistEntryID == m.count {
 		m.playState.greenlit = true
 	}
-	return m, tea.Batch(waitForMpv(m.msgChan))
 }
 
 func (m *Model) updateTags(meta Metadata, hash string, data string) {
@@ -271,43 +270,32 @@ func (m *Model) handleTextInput(msg tea.Msg) tea.Cmd {
 			case "enter":
 				{
 					if m.menuSong != nil {
+						hash := m.menuSong.Hash
+						if len(hash) == 0 {
+							m.menuSong.HashAudio()
+						}
+						hash = m.menuSong.Hash
 						switch m.menuPos {
 						case MTitle:
 							{
 								m.menuSong.Title = m.ti.Value()
 								m.menuSong.FromHash = true
-								hash := m.menuSong.Hash
-								if len(hash) == 0 {
-									m.menuSong.HashAudio()
-								}
-								m.updateTags(Title, m.menuSong.Hash, m.ti.Value())
+								m.updateTags(Title, hash, m.ti.Value())
 							}
 						case MArtist:
 							{
 								m.menuSong.Artist = m.ti.Value()
-								hash := m.menuSong.Hash
-								if len(hash) == 0 {
-									m.menuSong.HashAudio()
-								}
-								m.updateTags(Artist, m.menuSong.Hash, m.ti.Value())
+								m.updateTags(Artist, hash, m.ti.Value())
 							}
 						case MAlbum:
 							{
 								m.menuSong.Album = m.ti.Value()
-								hash := m.menuSong.Hash
-								if len(hash) == 0 {
-									m.menuSong.HashAudio()
-								}
-								m.updateTags(Album, m.menuSong.Hash, m.ti.Value())
+								m.updateTags(Album, hash, m.ti.Value())
 							}
 						case MAlbumArtist:
 							{
 								m.menuSong.AlbumArtist = m.ti.Value()
-								hash := m.menuSong.Hash
-								if len(hash) == 0 {
-									m.menuSong.HashAudio()
-								}
-								m.updateTags(AlbumArtist, m.menuSong.Hash, m.ti.Value())
+								m.updateTags(AlbumArtist, hash, m.ti.Value())
 							}
 						}
 					}
@@ -324,14 +312,14 @@ func (m *Model) handleTextInput(msg tea.Msg) tea.Cmd {
 			}
 		}
 	}
-	m.ti, cmd = m.ti.Update(msg)
+	*m.ti, cmd = m.ti.Update(msg)
 	m.updateCurrState()
 	return cmd
 }
 
 func (m *Model) handleEnter() {
 	queue := m.GetQueue()
-	if m.menuPos != NoMenu && m.menuPos < 5 {
+	if m.menuPos != NoMenu && m.menuPos < 6 {
 		m.menuPos += 5
 		if m.menuPos < MLyricPath {
 			m.ti.Focus()
@@ -384,7 +372,6 @@ func (m *Model) handleSaveInput(msg tea.Msg) tea.Cmd {
 					stats, err := os.Stat(filePath)
 					if err == nil && stats.Size() != 0 {
 						m.overwrite = filePath
-						m.overwriting = true
 						m.saving = false
 						m.saved = false
 						m.ti.Blur()
@@ -410,7 +397,7 @@ func (m *Model) handleSaveInput(msg tea.Msg) tea.Cmd {
 	}
 	if c {
 		var cm tea.Cmd
-		m.ti, cm = m.ti.Update(msg)
+		*m.ti, cm = m.ti.Update(msg)
 		cmd = append(cmd, cm)
 	}
 	m.updateCurrState()
@@ -447,13 +434,12 @@ func (m *Model) handleDialogue(msg tea.Msg) tea.Cmd {
 						cmd = savedCmd()
 					}
 					m.overwriteD = false
-					m.overwriting = false
+					m.overwrite = ""
 				}
 			case "esc", "escape":
 				{
 					m.overwriteD = false
 					m.overwrite = ""
-					m.overwriting = false
 				}
 			}
 		}
@@ -480,7 +466,9 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 		{
 			if m.menuPos != NoMenu {
 				m.menuPos++
-				m.menuPos %= 5
+				if m.menuPos == 6 {
+					m.menuPos = 1
+				}
 				break
 			}
 			m.ChangeSong(false)
@@ -489,9 +477,10 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 	case "b", "up":
 		{
 			if m.menuPos != NoMenu {
-				m.menuPos--
-				if m.menuPos < 0 {
-					m.menuPos = 4
+				if m.menuPos > 1 {
+					m.menuPos--
+				} else {
+					m.menuPos = 5
 				}
 				break
 			}
@@ -539,7 +528,7 @@ func (m *Model) handleKeybinds(msg tea.KeyPressMsg) {
 			} else {
 				m.menuSong = &queue.Songs[queue.CurrSong]
 			}
-			m.menuPos = 0
+			m.menuPos = 1
 		}
 	}
 }
@@ -555,7 +544,7 @@ func (m *Model) handleFP(msg tea.Msg) tea.Cmd {
 			}
 		}
 	}
-	m.filepicker, cmd = m.filepicker.Update(msg)
+	*m.filepicker, cmd = m.filepicker.Update(msg)
 	hasSelected, selection := m.filepicker.DidSelectFile(msg)
 	if !hasSelected {
 		return cmd
@@ -587,23 +576,23 @@ func (m *Model) updateCurrState() {
 	m.currentState = CurrStateAsStr(m.width, h, h, &m.playlists[m.queue])
 }
 
-func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) updatePlayer(msg tea.Msg) tea.Cmd {
 	if m.menuPos >= MTitle && m.menuPos < MLyricPath {
 		cmd := m.handleTextInput(msg)
-		return m, cmd
+		return cmd
 	} else if m.menuPos == MLyricPath {
 		cmd := m.handleFP(msg)
-		return m, cmd
+		return cmd
 	} else if m.saving {
 		if !m.ti.Focused() {
 			m.setupSaveInput()
 		}
 		cmd := m.handleSaveInput(msg)
-		return m, cmd
+		return cmd
 	}
-	if m.overwriting {
+	if len(m.overwrite) != 0 {
 		cmd := m.handleDialogue(msg)
-		return m, cmd
+		return cmd
 	}
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
@@ -612,7 +601,7 @@ func (m Model) updatePlayer(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.err != nil {
-		return m, tea.Batch(errorCmd())
+		return tea.Batch(errorCmd())
 	}
-	return m, nil
+	return nil
 }

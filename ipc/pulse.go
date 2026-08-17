@@ -80,20 +80,27 @@ func GetPulsePath() string {
 }
 
 func PulseaudioIsDead(pulsePath string) bool {
-	retries := 5
+	retries := 25
 	for {
 		if retries == 0 {
 			break
 		}
 		conn, err := net.Dial("unix", pulsePath)
 		if err == nil {
-			fromNow := time.Now().Add(time.Microsecond * 300)
-			conn.SetWriteDeadline(fromNow)
-			_, e := conn.Write([]byte{0x00})
-			if e != nil {
-				return true
+			defer conn.Close()
+			retries = 15
+			for {
+				if retries == 0 {
+					return true
+				}
+				fromNow := time.Now().Add(time.Microsecond * 50)
+				conn.SetWriteDeadline(fromNow)
+				n, e := conn.Write([]byte{0x00})
+				if e == nil && n > 0 {
+					return false
+				}
+				retries--
 			}
-			return false
 		} else {
 			operr, ok := err.(*net.OpError)
 			if !ok {
@@ -110,6 +117,8 @@ func PulseaudioIsDead(pulsePath string) bool {
 			if errno == syscall.EAGAIN {
 				retries--
 				continue
+			} else {
+				return true
 			}
 		}
 	}

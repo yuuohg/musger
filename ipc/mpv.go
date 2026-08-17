@@ -51,16 +51,19 @@ func (client *MpvClient) MpvReplies(
 	subChan := make(chan []byte, 5)
 	iqc := make(chan struct{})
 	go scan(scanner, subChan, iqc)
+	buffer := make([]byte, 0, 512)
 SCAN:
 	for {
 		select {
 		case msg := <-subChan:
 			{
 				var response MpvResponse
-				err := json.Unmarshal(msg, &response)
+				buffer = append(buffer, msg...)
+				err := json.Unmarshal(buffer, &response)
 				if err != nil {
 					continue SCAN
 				}
+				buffer = buffer[:0]
 				msgChan <- response
 			}
 		case <-iqc:

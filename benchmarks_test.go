@@ -9,11 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"musger/ansi"
 	"musger/ipc"
 	"musger/lyrics"
 	"musger/playlists"
 	"musger/ui"
 
+	"charm.land/bubbles/v2/progress"
+	lg "charm.land/lipgloss/v2"
 	"github.com/zeebo/xxh3"
 )
 
@@ -51,6 +54,51 @@ func BenchmarkShuffle(b *testing.B) {
 	for b.Loop() {
 		play.ShufflePlaylist()
 	}
+}
+
+func BenchmarkProgress(b *testing.B) {
+	var s string
+	var op ui.ProgressBarOptions = ui.ProgressBarOptions{
+		Width:      102,
+		FilledChar: '━', UnfilledChar: '━',
+		FilledColor: ansi.WHITE, UnfilledColor: ansi.BBLACK,
+	}
+	for b.Loop() {
+		s = ui.ProgressBar(0.46, &op)
+	}
+	fmt.Println(s)
+}
+
+func BenchmarkLPProgress(b *testing.B) {
+	prog := progress.New()
+	prog.EmptyColor = lg.BrightBlack
+	prog.FullColor = lg.White
+	prog.Full = '━'
+	prog.Empty = '━'
+	prog.ShowPercentage = false
+	prog.SetWidth(102)
+	var s string
+	for b.Loop() {
+		s = prog.ViewAs(0.46)
+	}
+	fmt.Println(s)
+}
+
+func BenchmarkCenter(b *testing.B) {
+	var s string
+	for b.Loop() {
+		s = ui.Center("Dyad (feat. unit.0) バカみたいに", 102)
+	}
+	fmt.Printf("%v\n", s)
+}
+
+func BenchmarkLPCenter(b *testing.B) {
+	var s string
+	titleStyle := lg.NewStyle().Width(102).Align(lg.Center).Render
+	for b.Loop() {
+		s = titleStyle("Dyad (feat. unit.0) バカみたいに")
+	}
+	fmt.Printf("%v\n", s)
 }
 
 func BenchmarkHash(b *testing.B) {

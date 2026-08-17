@@ -4,11 +4,11 @@ import (
 	"os"
 	"time"
 
+	"musger/ansi"
 	"musger/ipc"
 	"musger/playlists"
 
 	fp "charm.land/bubbles/v2/filepicker"
-	"charm.land/bubbles/v2/progress"
 	txt "charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	lg "charm.land/lipgloss/v2"
@@ -19,11 +19,10 @@ var (
 	borderStyle           = lg.NewStyle().BorderStyle(border).Render
 	padding               = lg.NewStyle().Padding(0, 1, 0, 1).Render
 	errStyle              = lg.NewStyle().Bold(true).Foreground(lg.Red).Render
-	titleStyle            = lg.NewStyle().Width(80).Align(lg.Center).Render
 	noTime                = time.Time{}
 )
 
-type Metadata int
+type Metadata byte
 
 const NEWLINE byte = 10
 
@@ -36,15 +35,15 @@ const (
 )
 
 const (
-	NoMenu       int = -1
-	MTitle       int = 5
-	MArtist      int = 6
-	MAlbum       int = 7
-	MAlbumArtist int = 8
-	MLyricPath   int = 9
+	NoMenu       byte = 0
+	MTitle       byte = 6
+	MArtist      byte = 7
+	MAlbum       byte = 8
+	MAlbumArtist byte = 9
+	MLyricPath   byte = 10
 )
 
-type Screen int
+type Screen byte
 
 const (
 	Player Screen = iota
@@ -68,35 +67,49 @@ type (
 	ClearErrMsg   struct{}
 	ClearSavedMsg struct{}
 	hashMsg       struct {
-		id   int
-		idx  int
-		hash string
+		hash        string
+		idx         int
+		playlisyIdx int
 	}
 )
 
-func hashSong(
-	playlist *playlists.Playlist,
-	idx int,
-	id int,
-) tea.Cmd {
-	song := playlist.Songs[idx]
-	if len(song.Hash) != 0 {
-		return func() tea.Msg {
-			return hashMsg{
-				id:   id,
-				idx:  idx,
-				hash: song.Hash,
-			}
-		}
-	}
-	song.HashAudio()
-	return func() tea.Msg {
-		return hashMsg{
-			id:   id,
-			idx:  idx,
-			hash: song.Hash,
-		}
-	}
+type PlayState struct {
+	lastTimePosCheck time.Time
+	song             *playlists.Song
+	fileName         string
+	nextTitle        string
+	durationMs       uint64
+	timePosMs        uint64
+	pause            bool
+	fromHash         bool
+	greenlit         bool
+}
+
+type Model struct {
+	err          error
+	playState    *PlayState
+	progress     *ProgressBarOptions
+	tags         map[string]playlists.SongMetadata
+	menuSong     *playlists.Song
+	msgChan      chan ipc.MpvResponse
+	client       *ipc.MpvClient
+	filepicker   *fp.Model
+	ti           *txt.Model
+	overwrite    string
+	currentState string
+	savePath     string
+	playlists    []playlists.Playlist
+	count        uint64
+	width        int
+	height       int
+	queue        int
+	menuPos      byte
+	loop         Loop
+	saved        bool
+	saving       bool
+	showQueue    bool
+	overwriteD   bool
+	screen       Screen
 }
 
 func waitForMpv(msgChan chan ipc.MpvResponse) tea.Cmd {
@@ -137,46 +150,29 @@ func (l Loop) loop() string {
 	return "Unknown Loop"
 }
 
-type PlayState struct {
-	song             *playlists.Song
-	pause            bool
-	durationMs       uint64
-	timePosMs        uint64
-	fileName         string
-	fromHash         bool
-	nextTitle        string
-	greenlit         bool
-	lastTimePosCheck time.Time
-}
-
-type Model struct {
-	client       *ipc.MpvClient
-	msgChan      chan ipc.MpvResponse
-	playState    PlayState
-	queue        int
-	screen       Screen
-	playlists    []playlists.Playlist
-	filepicker   fp.Model
-	progress     progress.Model
-	ti           txt.Model
-	menuSong     *playlists.Song
-	loop         Loop
-	ids          map[int]int
-	tags         map[string]playlists.SongMetadata
-	currentState string
-	savePath     string
-	overwrite    string
-	overwriteD   bool
-	overwriting  bool
-	showQueue    bool
-	saving       bool
-	saved        bool
-	availableId  int
-	menuPos      int
-	height       int
-	width        int
-	count        int64
-	err          error
+func hashSong(
+	playlist *playlists.Playlist,
+	idx int,
+	playIdx int,
+) tea.Cmd {
+	song := playlist.Songs[idx]
+	if len(song.Hash) != 0 {
+		return func() tea.Msg {
+			return hashMsg{
+				playlisyIdx: playIdx,
+				idx:         idx,
+				hash:        song.Hash,
+			}
+		}
+	}
+	song.HashAudio()
+	return func() tea.Msg {
+		return hashMsg{
+			playlisyIdx: playIdx,
+			idx:         idx,
+			hash:        song.Hash,
+		}
+	}
 }
 
 func (ps *PlayState) GetTimePos() uint64 {
@@ -188,7 +184,7 @@ func (ps *PlayState) GetTimePos() uint64 {
 	return uint64(time.Since(ps.lastTimePosCheck).Milliseconds()) + ps.timePosMs
 }
 
-func (m Model) AsMUGR() playlists.MUGRFile {
+func (m *Model) AsMUGR() playlists.MUGRFile {
 	queue := m.GetQueue()
 	cs := queue.CurrSong
 	if queue.IsShuffled {
@@ -262,35 +258,34 @@ func InitModel() (Model, chan struct{}, *ipc.MpvClient, error) {
 	filepicker.ShowHidden = true
 	filepicker.KeyMap = fp.DefaultKeyMap()
 	filepicker.Styles = fp.DefaultStyles()
-	prog := progress.New()
-	prog.EmptyColor = lg.BrightBlack
-	prog.FullColor = lg.White
-	prog.Full = '━'
-	prog.Empty = '━'
-	prog.ShowPercentage = false
+	var op ProgressBarOptions = ProgressBarOptions{
+		Width:      80,
+		FilledChar: '━', UnfilledChar: '━',
+		FilledColor: ansi.WHITE, UnfilledColor: ansi.BBLACK,
+	}
 	textInput := txt.New()
 	textInput.SetWidth(45)
-	ids := make(map[int]int)
 	tags := make(map[string]playlists.SongMetadata)
+	playState := PlayState{}
 	return Model{
 		client:     client,
 		msgChan:    msgChan,
 		screen:     PickingMain,
-		filepicker: filepicker,
-		progress:   prog,
-		ti:         textInput,
+		filepicker: &filepicker,
+		progress:   &op,
+		ti:         &textInput,
 		showQueue:  true,
 		menuPos:    NoMenu,
-		ids:        ids,
 		tags:       tags,
+		playState:  &playState,
 	}, quitChan, client, nil
 }
 
-func (m Model) Init() tea.Cmd {
+func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.filepicker.Init(), waitForMpv(m.msgChan))
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
@@ -316,14 +311,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case MpvMsg:
 		{
-			return m.handleMpvMsg(msg)
+			m.handleMpvMsg(msg)
+			return m, tea.Batch(waitForMpv(m.msgChan))
 		}
 	case tea.WindowSizeMsg:
 		{
 			m.height, m.width = msg.Height, msg.Width
-			m.progress.SetWidth(m.width)
+			m.progress.Width = m.width
 			m.ti.SetWidth(int(float64(m.width) * 0.75))
-			titleStyle = lg.NewStyle().Width(m.width).Align(lg.Center).Render
 			m.updateCurrState()
 		}
 	case ClearErrMsg:
@@ -338,33 +333,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case hashMsg:
 		{
-			playlistIdx, ok := m.ids[msg.id]
-			if !ok {
-				break
-			}
-			playlist := &m.playlists[playlistIdx]
+			playlist := &m.playlists[msg.playlisyIdx]
 			playlist.Songs[msg.idx].Hash = msg.hash
 			metadata, ok := m.tags[playlist.Songs[msg.idx].Hash]
 			if ok {
 				playlist.Songs[msg.idx].MergeMetadata(metadata)
 			}
 			if msg.idx == len(playlist.Songs)-1 {
-				delete(m.ids, msg.id)
 				m.updateCurrState()
 				return m, nil
 			}
-			m.updateCurrState()
-			return m, tea.Batch(hashSong(playlist, msg.idx+1, msg.id))
+			return m, tea.Batch(hashSong(playlist, msg.idx+1, msg.playlisyIdx))
 		}
 	}
 	switch m.screen {
 	case PickingMain:
 		{
-			return m.updatePickingMain(msg)
+			cmd := m.updatePickingMain(msg)
+			return m, cmd
 		}
 	case Player:
 		{
-			m, cmd := m.updatePlayer(msg)
+			cmd := m.updatePlayer(msg)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -372,7 +362,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) View() tea.View {
+func (m *Model) View() tea.View {
 	switch m.screen {
 	case Player:
 		{

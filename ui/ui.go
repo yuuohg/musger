@@ -4,11 +4,23 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"strings"
+	"unicode/utf8"
+
+	"musger/ansi"
 )
 
 var characters = []rune(
 	"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
 )
+
+type ProgressBarOptions struct {
+	FilledColor   string
+	UnfilledColor string
+	Width         int
+	FilledChar    rune
+	UnfilledChar  rune
+}
 
 // function below is ai-generated
 func calculateLaLb(
@@ -55,4 +67,50 @@ func GeneratePulsePath() string {
 
 func secsToms(s float64) uint64 {
 	return uint64(math.Round(s * 1000))
+}
+
+func Center(s string, width int) string {
+	return strings.Repeat(" ", (width-StringWidth(s))>>1) + s
+}
+
+func ProgressBar(
+	progress float64, options *ProgressBarOptions,
+) string {
+	var progressBar strings.Builder
+	progress = min(max(progress, 0), 1)
+	fcw := RuneWidth(options.FilledChar)
+	ufcw := RuneWidth(options.UnfilledChar)
+	filled := int(float64(options.Width)*progress) / fcw
+	unfilled := (options.Width - filled*fcw) / ufcw
+	var filledRune [4]byte
+	var unfilledRune [4]byte
+	lFB := utf8.EncodeRune(filledRune[:], options.FilledChar)
+	lUFB := utf8.EncodeRune(unfilledRune[:], options.UnfilledChar)
+	filledByte, unfilledByte := filledRune[:lFB], unfilledRune[:lUFB]
+	if unfilled == 1 && progress >= 0.995 {
+		filled++
+		unfilled--
+	}
+	progressBar.Grow(
+		filled*len(
+			filledByte,
+		) + unfilled*len(
+			unfilledByte,
+		) + len(
+			options.FilledColor,
+		) + len(
+			options.UnfilledColor,
+		) + 8,
+	)
+	progressBar.WriteString(options.FilledColor)
+	for range filled {
+		progressBar.Write(filledByte)
+	}
+	progressBar.WriteString(ansi.RESET)
+	progressBar.WriteString(options.UnfilledColor)
+	for range unfilled {
+		progressBar.Write(unfilledByte)
+	}
+	progressBar.WriteString(ansi.RESET)
+	return progressBar.String()
 }

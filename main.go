@@ -39,7 +39,7 @@ func main() {
 		ipc.StartPulse(ui.GeneratePulsePath())
 		retries--
 	}
-	program := tea.NewProgram(model)
+	program := tea.NewProgram(&model)
 	program.Run()
 	quitChan <- nothing
 	<-quitChan

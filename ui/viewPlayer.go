@@ -39,7 +39,7 @@ func MstoReadable(ms uint64) string {
 	return s.String()
 }
 
-func DisplayMenu(c int) string {
+func DisplayMenu(c byte) string {
 	var s strings.Builder
 	s.Grow(52)
 	if c == 0 {
@@ -222,7 +222,7 @@ func TruncateTitle(title string, width int) string {
 }
 
 func (m *Model) viewMenu(compositor *lg.Compositor) {
-	content := DisplayMenu(m.menuPos)
+	content := DisplayMenu(m.menuPos - 1)
 	styledContent := borderStyle(padding(content))
 	menu := lg.NewLayer(styledContent).Z(1)
 	compositor.AddLayers(
@@ -271,7 +271,7 @@ func (m *Model) viewDialogue(compositor *lg.Compositor) {
 	)
 }
 
-func (m Model) viewPlayer() tea.View {
+func (m *Model) viewPlayer() tea.View {
 	var s strings.Builder
 	var progress float64 = 0
 	timePos := m.playState.GetTimePos()
@@ -308,11 +308,11 @@ func (m Model) viewPlayer() tea.View {
 		artist = m.playState.song.Artist
 	}
 	title = TruncateTitle(title, m.width)
-	s.WriteString(titleStyle(title))
+	s.WriteString(Center(title, m.width))
 	s.WriteByte(NEWLINE)
 	s.WriteString(artist)
 	s.WriteByte(NEWLINE)
-	s.WriteString(m.progress.ViewAs(progress))
+	s.WriteString(ProgressBar(progress, m.progress))
 	s.WriteByte(NEWLINE)
 	s.WriteString(timePosReadable)
 	s.WriteString(spaces)
@@ -331,14 +331,15 @@ func (m Model) viewPlayer() tea.View {
 		s.WriteString(m.currentState)
 	}
 	s.WriteByte(NEWLINE)
-	if m.menuPos == NoMenu && !m.saving && !m.saved && !m.overwriting {
+	overwriting := len(m.overwrite) != 0
+	if m.menuPos == NoMenu && !m.saving && !m.saved && !overwriting {
 		v := tea.NewView(s.String())
 		v.AltScreen = true
 		return v
 	}
 	compositor := lg.NewCompositor()
 	compositor.AddLayers(lg.NewLayer(s.String()))
-	if m.menuPos != NoMenu && m.menuPos < 5 {
+	if m.menuPos != NoMenu && m.menuPos < 6 {
 		m.viewMenu(compositor)
 	} else if m.menuPos >= 5 && m.menuPos != MLyricPath {
 		m.viewText(compositor)
@@ -350,7 +351,7 @@ func (m Model) viewPlayer() tea.View {
 	} else if m.saved {
 		m.viewSave(compositor)
 	}
-	if m.overwriting {
+	if overwriting {
 		m.viewDialogue(compositor)
 	}
 	v := tea.NewView(compositor.Render())
